@@ -11,6 +11,7 @@
 ```bash
 esp32_mqtt_btHub/
 ├── main/
+│   ├── CMakeLists.txt
 │   ├── device_manager.c
 │   ├── mqtt_manager.c
 │   ├── wifi_manager.c       

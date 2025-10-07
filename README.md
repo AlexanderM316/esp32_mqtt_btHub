@@ -12,10 +12,10 @@
 esp32_mqtt_btHub/
 ├── main/
 │   ├── CMakeLists.txt
-│   ├── device_manager.c
-│   ├── mqtt_manager.c
-│   ├── wifi_manager.c       
-│   ├── esp32_mqtt_btHub.c  ← main
+│   ├── device_manager.c     ← Логика работы с BLE-устройствами
+│   ├── mqtt_manager.c       ← логика работы с MQTT и обмен сообщениями
+│   ├── wifi_manager.c       ← Подключение к Wi-Fi, обработка событий сети
+│   ├── esp32_mqtt_btHub.c   ← main
 │   └── include/
 │       ├── device_manager.h
 │       ├── mqtt_manager.h

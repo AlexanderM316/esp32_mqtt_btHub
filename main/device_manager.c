@@ -4,7 +4,9 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-static uint8_t w_cmd[6] = { 0xAA, 0x11, 0x04, 0x00, 0x00, 0x00 }; // default write cmd 
+#define CMD_MAX_LEN 12 //  max length of w_cmd
+
+static uint8_t w_cmd[CMD_MAX_LEN]; // default write cmd
 
 device_manager_t device_manager = {
     .scanning = false,
@@ -54,15 +56,25 @@ static void decode_notification(int device_index,
         }
     }
 }
-
-static void build_cmd(uint8_t opcode, uint8_t payload)
+/**
+ * @brief build the w_cmd
+ * @param opcode the command type (0x11 = on/off, 0x13 = brightness)
+ * @param *payload data
+ * @param paylaod_len size of the payload data only not the whole w_cmd
+ */
+static void build_cmd(uint8_t opcode, const uint8_t *payload, size_t payload_len)
 {
+    w_cmd[0] = 0xAA;        // header
     w_cmd[1] = opcode;      // 0x11 = on/off, 0x13 = brightness
-    w_cmd[3] = payload;
+    w_cmd[2] = payload_len;
 
-    uint16_t crc = crc16_modbus(w_cmd, 4);   // compute over first 4 bytes
-    w_cmd[4] = crc & 0xFF;                    // low byte first
-    w_cmd[5] = (crc >> 8) & 0xFF;             // high byte
+    for (size_t i = 0; i < payload_len; i++) {
+        w_cmd[3 + i] = payload[i];
+    }
+
+    uint16_t crc = crc16_modbus(w_cmd, 3 + payload_len);  // append to end
+    w_cmd[3 + payload_len] = crc & 0xFF;                    // low byte first
+    w_cmd[4 + payload_len] = (crc >> 8) & 0xFF;             // high byte
 }
 
 static void start_scanning(void)
@@ -73,7 +85,7 @@ static void start_scanning(void)
     }
     
     device_manager.scanning = true;
-    ESP_LOGI(GATTC_TAG, "Starting discovery for %d Flood Lights...", MAX_DEVICES);
+    ESP_LOGI(GATTC_TAG, "Starting discovery for %d devices ...", MAX_DEVICES);
     esp_ble_gap_start_scanning(30);
 }
 
@@ -463,20 +475,21 @@ bool disconnect_from_device(int device_index)
 
 bool device_set_on(int device_index)
 {
-    build_cmd(0x11, 0x01);
+    uint8_t payload = 0x01;
+    build_cmd(0x11, &payload, 1);
     return control_device(device_index, w_cmd, sizeof(w_cmd));
 }
 
 bool device_set_off(int device_index)
 {
-    build_cmd(0x11, 0x00);
+    uint8_t payload = 0x00;
+    build_cmd(0x11, &payload, 1);
     return control_device(device_index, w_cmd, sizeof(w_cmd));
 }
 
 bool device_set_brightness(int device_index, uint8_t brightness)
 {   
-    build_cmd(0x13, brightness);
-    ESP_LOG_BUFFER_HEX(GATTC_TAG, w_cmd, sizeof(w_cmd));        
+    build_cmd(0x13, &brightness, 1);
     return control_device(device_index, w_cmd, sizeof(w_cmd));
 }
 

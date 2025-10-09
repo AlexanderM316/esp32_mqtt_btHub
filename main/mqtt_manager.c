@@ -2,6 +2,7 @@
 #include "common.h"
 
 #include "mqtt_client.h"
+#include "cJSON.h"
 
 static esp_mqtt_client_handle_t s_mqtt_client = NULL;
 
@@ -11,48 +12,52 @@ static void mqtt_discovery(int device_index)
         ESP_LOGE(GATTC_TAG, "MQTT client not initialized");
         return;
     }
+    uint8_t esp_mac[6];
+    esp_read_mac(esp_mac, ESP_MAC_WIFI_STA);  // get Wi-Fi MAC
+    char esp_mac_str[13];                 // esp mac
+    snprintf(esp_mac_str, sizeof(esp_mac_str),
+             "%02X%02X%02X%02X%02X%02X",
+             esp_mac[0], esp_mac[1], esp_mac[2], esp_mac[3], esp_mac[4], esp_mac[5]);
 
     flood_light_device_t *device = &device_manager.devices[device_index];
     
     // Convert MAC address to string for unique ID
-    char mac_str[18];
-    snprintf(mac_str, sizeof(mac_str), "%02X%02X%02X%02X%02X%02X", // Remove colons for cleaner ID
+    char dev_mac_str[13]; // device mac
+    snprintf(dev_mac_str, sizeof(dev_mac_str), "%02X%02X%02X%02X%02X%02X", // Remove colons for cleaner ID
              device->mac_address[0], device->mac_address[1], device->mac_address[2],
              device->mac_address[3], device->mac_address[4], device->mac_address[5]);
 
-    char discovery_topic[256];
+    char discovery_topic[64];
     snprintf(discovery_topic, sizeof(discovery_topic), 
              "%s/light/esp32_floodlight_%s/config", 
-             MQTT_HA_DISCOVERY_PREFIX, mac_str);
+             MQTT_HA_DISCOVERY_PREFIX, dev_mac_str);
 
-    char discovery_payload[805];
+    char discovery_payload[512];
     snprintf(discovery_payload, sizeof(discovery_payload),
         "{"
         "\"name\":\"Flood Light %s\","
         "\"unique_id\":\"esp32_floodlight_%s\","
+        "\"schema\":\"json\","
         "\"command_topic\":\"esp32/floodlight/%s/set\","
         "\"state_topic\":\"esp32/floodlight/%s/state\","
-        "\"brightness_command_topic\":\"esp32/floodlight/%s/brightness/set\","
-        "\"brightness_state_topic\":\"esp32/floodlight/%s/brightness/state\","
+        "\"brightness\":true,"
         "\"brightness_scale\":100,"
         "\"on_command_type\":\"brightness\","
         "\"on_command_type\":\"first\","
         "\"payload_off\":\"OFF\","
         "\"payload_on\":\"ON\","
-        "\"state_value_template\":\"{{ value_json.state }}\"," 
-        "\"brightness_value_template\":\"{{ value_json.brightness }}\"," 
         "\"optimistic\":false,"
         "\"qos\":0,"
         "\"retain\":true,"
         "\"device\":{"
-            "\"identifiers\":[\"esp32_floodlight_%s\"],"
-            "\"name\":\"Flood Light %s\","
-            "\"manufacturer\":\"ESP32 BT Hub\","
-            "\"model\":\"Flood Light\","
+            "\"identifiers\":[\"esp32_%s\"],"
+            "\"name\":\"ESP32 BT Hub\","
+            "\"manufacturer\":\"ESP32\","
+            "\"model\":\"BT Hub\","
             "\"sw_version\":\"1.0\""
         "}"
         "}",
-        mac_str, mac_str, mac_str, mac_str, mac_str, mac_str, mac_str, mac_str); // 8 arguments
+        dev_mac_str, dev_mac_str, dev_mac_str, dev_mac_str, esp_mac_str); // 5 arguments
 
     int msg_id = esp_mqtt_client_publish(s_mqtt_client, discovery_topic, discovery_payload, 0, 1, 1);
     ESP_LOGI(GATTC_TAG, "Published discovery for device %d, msg_id=%d", device_index, msg_id);
@@ -86,9 +91,6 @@ static void mqtt_handle_command(const char* topic, int topic_len, const char* da
     if (mac_len >= sizeof(mac_fragment)) return;
     memcpy(mac_fragment, p, mac_len);
     mac_fragment[mac_len] = '\0';
-
-    // Get the command type (what comes after MAC address)
-    const char *command_type = slash + 1;
 
     // normalize MAC into bytes
     esp_bd_addr_t mac_addr = {0};
@@ -124,32 +126,33 @@ static void mqtt_handle_command(const char* topic, int topic_len, const char* da
         ESP_LOGW(GATTC_TAG, "No device match for MAC in topic");
         return;
     }
-    ESP_LOGI(GATTC_TAG, "Found device index %d for incoming MQTT command", device_index);
 
-    if (strcmp(command_type, "brightness/set") == 0) {
-        int brightness = 0;
-        if (sscanf(data_str, "%d", &brightness) == 1) {
-            
-            device_set_brightness(device_index, (uint8_t)brightness);
-                    
+    cJSON *json = cJSON_Parse(data_str);
+    if (!json) {
+        ESP_LOGW(GATTC_TAG, "Failed to parse JSON payload: %s", data_str);
+        return;
+    }
+
+    cJSON *state_item = cJSON_GetObjectItem(json, "state");
+    if (state_item && cJSON_IsString(state_item)) {
+        if (strcasecmp(state_item->valuestring, "ON") == 0 || strcmp(state_item->valuestring, "1") == 0) {
+            ESP_LOGI(GATTC_TAG, "Turn ON device %d", device_index);
+            device_set_on(device_index);
+        } else if (strcasecmp(state_item->valuestring, "OFF") == 0 || strcmp(state_item->valuestring, "0") == 0) {
+            ESP_LOGI(GATTC_TAG, "Turn OFF device %d", device_index);
+            device_set_off(device_index);
         }
-        return;
-    }
-    
-    if (strcasecmp(data_str, "ON") == 0 || strcmp(data_str, "1") == 0) {
-        
-        ESP_LOGI(GATTC_TAG, "Turn ON device %d", device_index);
-        device_set_on(device_index);
-        return;
-    }
-    if (strcasecmp(data_str, "OFF") == 0 || strcmp(data_str, "0") == 0) {
-              
-        ESP_LOGI(GATTC_TAG, "Turn OFF device %d", device_index);
-        device_set_off(device_index);
-        return;
     }
 
-    ESP_LOGW(GATTC_TAG, "Unhandled payload: %s", data_str);
+    // Handle brightness
+    cJSON *brightness_item = cJSON_GetObjectItem(json, "brightness");
+    if (brightness_item && cJSON_IsNumber(brightness_item)) {
+        int brightness = brightness_item->valueint;
+        ESP_LOGI(GATTC_TAG, "Set brightness %d for device %d", brightness, device_index);
+        device_set_brightness(device_index, (uint8_t)brightness);
+    }
+
+    cJSON_Delete(json);
 }
 
 static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data)
@@ -242,7 +245,7 @@ void mqtt_device_state(int index, bool power_state, esp_bd_addr_t mac){
         ESP_LOGW(GATTC_TAG, "MQTT client not ready; skipping publish");
         return;
     }
-    char mac_str[18]; // "AA:BB:CC:DD:EE:FF" + null
+    char mac_str[13]; // "AA:BB:CC:DD:EE:FF" + null
     snprintf(mac_str, sizeof(mac_str),
              "%02X%02X%02X%02X%02X%02X",
              mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
@@ -250,18 +253,21 @@ void mqtt_device_state(int index, bool power_state, esp_bd_addr_t mac){
     char topic[64];
     snprintf(topic, sizeof(topic),
              "esp32/floodlight/%s/state", mac_str);
-    const char *state_str = power_state ? "ON" : "OFF";
 
     char payload[64];
     snprintf(payload, sizeof(payload),
-             "{\"state\":\"%s\"}", state_str);
+             "{"
+             "\"state\":\"%s\","
+             "}",
+             power_state ? "ON" : "OFF"
+             );
      int msg_id = esp_mqtt_client_publish(
         s_mqtt_client,
         topic,          // topic
         payload,        // payload
         0,              // length (0 = use strlen)
-        1,              // QoS 1 is typical for HA
-        true            // retain message so HA sees it after restart
+        1,              // QoS 1
+        true            // retain message
     );
 
     if (msg_id >= 0) {

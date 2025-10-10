@@ -1,6 +1,7 @@
 #ifndef device_manager_H
 #define device_manager_H
 
+#include "esp_gatt_defs.h"
 #include "esp_gap_ble_api.h"
 #include "esp_gattc_api.h"
 

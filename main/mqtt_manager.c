@@ -257,7 +257,7 @@ void mqtt_device_state(int index, bool power_state, esp_bd_addr_t mac){
     char payload[64];
     snprintf(payload, sizeof(payload),
              "{"
-             "\"state\":\"%s\","
+             "\"state\":\"%s\""
              "}",
              power_state ? "ON" : "OFF"
              );

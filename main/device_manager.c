@@ -23,8 +23,9 @@ static esp_bt_uuid_t notify_descr_uuid = {
     .len = ESP_UUID_LEN_16,
     .uuid = {.uuid16 = ESP_GATT_UUID_CHAR_CLIENT_CONFIG,},
 };
-
-// Modbus CRC function 
+/**
+ * @brief Modbus CRC function 
+*/
 static uint16_t crc16_modbus(const uint8_t *data, size_t len)
 {
     uint16_t crc = 0xFFFF;
@@ -58,23 +59,30 @@ static void decode_notification(int device_index,
 }
 /**
  * @brief build the w_cmd
- * @param opcode the command type (0x11 = on/off, 0x13 = brightness)
+ * @param opcode the command type (0x11 = on/off, 0x13 = brightness 0x17 rbg)
  * @param *payload data
  * @param paylaod_len size of the payload data only not the whole w_cmd
- */
-static void build_cmd(uint8_t opcode, const uint8_t *payload, size_t payload_len)
+ * @return Total length 
+*/
+static size_t build_cmd(uint8_t opcode, const uint8_t *payload, size_t payload_len)
 {
     w_cmd[0] = 0xAA;        // header
     w_cmd[1] = opcode;      // 0x11 = on/off, 0x13 = brightness
-    w_cmd[2] = payload_len;
+    w_cmd[2] = 3 + payload_len;
 
     for (size_t i = 0; i < payload_len; i++) {
         w_cmd[3 + i] = payload[i];
     }
-
+    
     uint16_t crc = crc16_modbus(w_cmd, 3 + payload_len);  // append to end
     w_cmd[3 + payload_len] = crc & 0xFF;                    // low byte first
     w_cmd[4 + payload_len] = (crc >> 8) & 0xFF;             // high byte
+
+    ESP_LOGI(GATTC_TAG, "Built command buffer:");
+    ESP_LOG_BUFFER_HEX(GATTC_TAG, w_cmd, sizeof(w_cmd));
+    size_t pkt_len = 3 + payload_len + 2; // header + payload + crc
+    if (pkt_len > CMD_MAX_LEN) return 0;
+    return pkt_len;
 }
 
 static void start_scanning(void)
@@ -476,21 +484,32 @@ bool disconnect_from_device(int device_index)
 bool device_set_on(int device_index)
 {
     uint8_t payload = 0x01;
-    build_cmd(0x11, &payload, 1);
-    return control_device(device_index, w_cmd, sizeof(w_cmd));
+    size_t cmd_len = build_cmd(0x11, &payload, 1);
+    if (!cmd_len) return false;
+    return control_device(device_index, w_cmd, cmd_len);
 }
 
 bool device_set_off(int device_index)
 {
     uint8_t payload = 0x00;
-    build_cmd(0x11, &payload, 1);
-    return control_device(device_index, w_cmd, sizeof(w_cmd));
+    size_t cmd_len = build_cmd(0x11, &payload, 1);
+    if (!cmd_len) return false;
+    return control_device(device_index, w_cmd, cmd_len);
 }
 
 bool device_set_brightness(int device_index, uint8_t brightness)
 {   
-    build_cmd(0x13, &brightness, 1);
-    return control_device(device_index, w_cmd, sizeof(w_cmd));
+    size_t cmd_len = build_cmd(0x13, &brightness, 1);
+    if (!cmd_len) return false;
+    return control_device(device_index, w_cmd, cmd_len);
+}
+
+bool device_set_color(int device_index, uint8_t r, uint8_t g, uint8_t b)
+{  
+    uint8_t payload[7] = {r, g, b, r, g, b, 0x64}; 
+    size_t cmd_len = build_cmd(0x17, payload, 7);
+    if (!cmd_len) return false;
+    return control_device(device_index, w_cmd, cmd_len);
 }
 
 void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param)
@@ -504,10 +523,8 @@ void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param)
         break;
         
     case ESP_GAP_BLE_SCAN_START_COMPLETE_EVT:
-        if (param->scan_start_cmpl.status == ESP_BT_STATUS_SUCCESS) {
-            ESP_LOGI(GATTC_TAG, "Scan start success");
-        } else {
-            ESP_LOGE(GATTC_TAG, "Scan start failed");
+        if (!(param->scan_start_cmpl.status == ESP_BT_STATUS_SUCCESS)) {
+             ESP_LOGE(GATTC_TAG, "Scan start failed");
         }
         break;
         

@@ -105,6 +105,14 @@ bool device_set_off(int device_index);
  */
 bool device_set_brightness(int device_index, uint8_t brightness);
 /**
+ * @brief set color of bluetooth light
+ * @param device_index device app id
+ * @param r red (in hex)
+ * @param g greeb (in hex)
+ * @param b blue (in hex)
+ */
+bool device_set_color(int device_index, uint8_t r, uint8_t g ,uint8_t b);
+/**
  * @brief  GATTC callback
  */
 void esp_gattc_cb(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp_ble_gattc_cb_param_t *param);

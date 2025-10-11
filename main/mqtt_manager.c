@@ -42,8 +42,8 @@ static void mqtt_discovery(int device_index)
         "\"state_topic\":\"esp32/floodlight/%s/state\","
         "\"brightness\":true,"
         "\"brightness_scale\":100,"
+        "\"supported_color_modes\":[\"rgb\"],"
         "\"on_command_type\":\"brightness\","
-        "\"on_command_type\":\"first\","
         "\"payload_off\":\"OFF\","
         "\"payload_on\":\"ON\","
         "\"optimistic\":false,"
@@ -62,7 +62,6 @@ static void mqtt_discovery(int device_index)
     int msg_id = esp_mqtt_client_publish(s_mqtt_client, discovery_topic, discovery_payload, 0, 1, 1);
     ESP_LOGI(GATTC_TAG, "Published discovery for device %d, msg_id=%d", device_index, msg_id);
     ESP_LOGI(GATTC_TAG, "Topic: %s", discovery_topic);
-    ESP_LOGI(GATTC_TAG, "Payload: %s", discovery_payload);
 }
 
 static void mqtt_handle_command(const char* topic, int topic_len, const char* data, int data_len)
@@ -144,12 +143,31 @@ static void mqtt_handle_command(const char* topic, int topic_len, const char* da
         }
     }
 
-    // Handle brightness
     cJSON *brightness_item = cJSON_GetObjectItem(json, "brightness");
     if (brightness_item && cJSON_IsNumber(brightness_item)) {
-        int brightness = brightness_item->valueint;
+        uint8_t brightness = brightness_item->valueint;
         ESP_LOGI(GATTC_TAG, "Set brightness %d for device %d", brightness, device_index);
         device_set_brightness(device_index, (uint8_t)brightness);
+    }
+
+    cJSON *color_item = cJSON_GetObjectItem(json, "color");
+    if (color_item && cJSON_IsObject(color_item)) {
+        // Extract RGB values from the color object
+        cJSON *r_item = cJSON_GetObjectItem(color_item, "r");
+        cJSON *g_item = cJSON_GetObjectItem(color_item, "g");
+        cJSON *b_item = cJSON_GetObjectItem(color_item, "b");
+
+        if (r_item && cJSON_IsNumber(r_item) && 
+            g_item && cJSON_IsNumber(g_item) && 
+            b_item && cJSON_IsNumber(b_item)) {
+        
+            uint8_t red = (uint8_t)r_item->valueint;
+            uint8_t green = (uint8_t)g_item->valueint;
+            uint8_t blue = (uint8_t)b_item->valueint;
+        
+            ESP_LOGI(GATTC_TAG, "Set color R:%d G:%d B:%d for device %d", red, green, blue, device_index);
+            device_set_color(device_index, (uint8_t)red, (uint8_t)green, (uint8_t)blue);
+        }
     }
 
     cJSON_Delete(json);

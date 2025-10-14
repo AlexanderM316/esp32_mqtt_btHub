@@ -4,12 +4,14 @@
 #include "mqtt_client.h"
 #include "cJSON.h"
 
+static const char *TAG = "MQTT";
+
 static esp_mqtt_client_handle_t s_mqtt_client = NULL;
 
 static void mqtt_discovery(int device_index)
 {
     if (s_mqtt_client == NULL) {
-        ESP_LOGE(GATTC_TAG, "MQTT client not initialized");
+        ESP_LOGE(TAG, "client not initialized");
         return;
     }
     uint8_t esp_mac[6];
@@ -60,8 +62,8 @@ static void mqtt_discovery(int device_index)
         dev_mac_str, dev_mac_str, dev_mac_str, dev_mac_str, esp_mac_str); // 5 arguments
 
     int msg_id = esp_mqtt_client_publish(s_mqtt_client, discovery_topic, discovery_payload, 0, 1, 1);
-    ESP_LOGI(GATTC_TAG, "Published discovery for device %d, msg_id=%d", device_index, msg_id);
-    ESP_LOGI(GATTC_TAG, "Topic: %s", discovery_topic);
+    ESP_LOGI(TAG, "Published discovery for device %d, msg_id=%d", device_index, msg_id);
+    ESP_LOGI(TAG, "Topic: %s", discovery_topic);
 }
 
 static void mqtt_handle_command(const char* topic, int topic_len, const char* data, int data_len)
@@ -75,7 +77,7 @@ static void mqtt_handle_command(const char* topic, int topic_len, const char* da
     memcpy(data_str, data, data_len);
     data_str[data_len] = '\0';
 
-    ESP_LOGI(GATTC_TAG, "Processing command: Topic=%s, Data=%s", topic_str, data_str);
+    ESP_LOGI(TAG, "Processing command: Topic=%s, Data=%s", topic_str, data_str);
 
     const char *base = "esp32/floodlight/";
     const char *p = strstr(topic_str, base);
@@ -116,29 +118,29 @@ static void mqtt_handle_command(const char* topic, int topic_len, const char* da
     }
 
     if (!mac_ok) {
-        ESP_LOGW(GATTC_TAG, "Unable to parse MAC from topic: %s", mac_fragment);
+        ESP_LOGW(TAG, "Unable to parse MAC from topic: %s", mac_fragment);
         return;
     }
 
     int device_index = find_device_by_mac(mac_addr);
     if (device_index < 0) {
-        ESP_LOGW(GATTC_TAG, "No device match for MAC in topic");
+        ESP_LOGW(TAG, "No device match for MAC in topic");
         return;
     }
 
     cJSON *json = cJSON_Parse(data_str);
     if (!json) {
-        ESP_LOGW(GATTC_TAG, "Failed to parse JSON payload: %s", data_str);
+        ESP_LOGW(TAG, "Failed to parse JSON payload: %s", data_str);
         return;
     }
 
     cJSON *state_item = cJSON_GetObjectItem(json, "state");
     if (state_item && cJSON_IsString(state_item)) {
         if (strcasecmp(state_item->valuestring, "ON") == 0 || strcmp(state_item->valuestring, "1") == 0) {
-            ESP_LOGI(GATTC_TAG, "Turn ON device %d", device_index);
+            ESP_LOGI(TAG, "Turn ON device %d", device_index);
             device_set_on(device_index);
         } else if (strcasecmp(state_item->valuestring, "OFF") == 0 || strcmp(state_item->valuestring, "0") == 0) {
-            ESP_LOGI(GATTC_TAG, "Turn OFF device %d", device_index);
+            ESP_LOGI(TAG, "Turn OFF device %d", device_index);
             device_set_off(device_index);
         }
     }
@@ -146,7 +148,7 @@ static void mqtt_handle_command(const char* topic, int topic_len, const char* da
     cJSON *brightness_item = cJSON_GetObjectItem(json, "brightness");
     if (brightness_item && cJSON_IsNumber(brightness_item)) {
         uint8_t brightness = brightness_item->valueint;
-        ESP_LOGI(GATTC_TAG, "Set brightness %d for device %d", brightness, device_index);
+        ESP_LOGI(TAG, "Set brightness %d for device %d", brightness, device_index);
         device_set_brightness(device_index, (uint8_t)brightness);
     }
 
@@ -165,7 +167,7 @@ static void mqtt_handle_command(const char* topic, int topic_len, const char* da
             uint8_t green = (uint8_t)g_item->valueint;
             uint8_t blue = (uint8_t)b_item->valueint;
         
-            ESP_LOGI(GATTC_TAG, "Set color R:%d G:%d B:%d for device %d", red, green, blue, device_index);
+            ESP_LOGI(TAG, "Set color R:%d G:%d B:%d for device %d", red, green, blue, device_index);
             device_set_color(device_index, (uint8_t)red, (uint8_t)green, (uint8_t)blue);
         }
     }
@@ -175,12 +177,12 @@ static void mqtt_handle_command(const char* topic, int topic_len, const char* da
 
 static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data)
 {
-    ESP_LOGD(GATTC_TAG, "Event dispatched from event loop base=%s, event_id=%d", base, event_id);
+    ESP_LOGD(TAG, "Event dispatched from event loop base=%s, event_id=%d", base, event_id);
     esp_mqtt_event_handle_t event = event_data;
     
     switch ((esp_mqtt_event_id_t)event_id) {
     case MQTT_EVENT_CONNECTED:
-        ESP_LOGI(GATTC_TAG, "MQTT_EVENT_CONNECTED");
+        ESP_LOGI(TAG, "MQTT_EVENT_CONNECTED");
 
          // Publish discovery for all discovered devices
         for (int i = 0; i < device_manager.discovered_count; i++) {
@@ -191,44 +193,44 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
         }
          // Subscribe to wildcard command topic so incoming commands reach MQTT_EVENT_DATA
         int sub_id = esp_mqtt_client_subscribe(s_mqtt_client, "esp32/floodlight/+/set", 1);
-        ESP_LOGI(GATTC_TAG, "Subscribed to commands wildcard, sub_id=%d", sub_id);
+        ESP_LOGI(TAG, "Subscribed to commands wildcard, sub_id=%d", sub_id);
 
         int sub_id2 = esp_mqtt_client_subscribe(s_mqtt_client, "esp32/floodlight/+/brightness/set", 1);
-        ESP_LOGI(GATTC_TAG, "Subscribed to brightness wildcard, sub_id=%d", sub_id2);
+        ESP_LOGI(TAG, "Subscribed to brightness wildcard, sub_id=%d", sub_id2);
 
         break;
     case MQTT_EVENT_DISCONNECTED:
-        ESP_LOGI(GATTC_TAG, "MQTT_EVENT_DISCONNECTED");
+        ESP_LOGI(TAG, "MQTT_EVENT_DISCONNECTED");
         break;
     case MQTT_EVENT_SUBSCRIBED:
-        ESP_LOGI(GATTC_TAG, "MQTT_EVENT_SUBSCRIBED, msg_id=%d", event->msg_id);
+        ESP_LOGI(TAG, "MQTT_EVENT_SUBSCRIBED, msg_id=%d", event->msg_id);
         break;
     case MQTT_EVENT_UNSUBSCRIBED:
-        ESP_LOGI(GATTC_TAG, "MQTT_EVENT_UNSUBSCRIBED, msg_id=%d", event->msg_id);
+        ESP_LOGI(TAG, "MQTT_EVENT_UNSUBSCRIBED, msg_id=%d", event->msg_id);
         break;
     case MQTT_EVENT_PUBLISHED:
-        ESP_LOGI(GATTC_TAG, "MQTT_EVENT_PUBLISHED, msg_id=%d", event->msg_id);
+        ESP_LOGI(TAG, "MQTT_EVENT_PUBLISHED, msg_id=%d", event->msg_id);
         break;
     case MQTT_EVENT_DATA:
-        ESP_LOGI(GATTC_TAG, "MQTT_EVENT_DATA");
+        ESP_LOGI(TAG, "MQTT_EVENT_DATA");
         printf("TOPIC=%.*s\r\n", event->topic_len, event->topic);
         printf("DATA=%.*s\r\n", event->data_len, event->data);
         mqtt_handle_command(event->topic, event->topic_len, event->data, event->data_len);
         break;
     case MQTT_EVENT_ERROR:
-        ESP_LOGI(GATTC_TAG, "MQTT_EVENT_ERROR");
+        ESP_LOGI(TAG, "MQTT_EVENT_ERROR");
         if (event->error_handle->error_type == MQTT_ERROR_TYPE_TCP_TRANSPORT) {
-            ESP_LOGI(GATTC_TAG, "Last error code reported from esp-tls: 0x%x", event->error_handle->esp_tls_last_esp_err);
-            ESP_LOGI(GATTC_TAG, "Last tls stack error number: 0x%x", event->error_handle->esp_tls_stack_err);
-            ESP_LOGI(GATTC_TAG, "Last captured errno : %d", event->error_handle->esp_transport_sock_errno);
+            ESP_LOGI(TAG, "Last error code reported from esp-tls: 0x%x", event->error_handle->esp_tls_last_esp_err);
+            ESP_LOGI(TAG, "Last tls stack error number: 0x%x", event->error_handle->esp_tls_stack_err);
+            ESP_LOGI(TAG, "Last captured errno : %d", event->error_handle->esp_transport_sock_errno);
         } else if (event->error_handle->error_type == MQTT_ERROR_TYPE_CONNECTION_REFUSED) {
-            ESP_LOGI(GATTC_TAG, "Connection refused error: 0x%x", event->error_handle->connect_return_code);
+            ESP_LOGI(TAG, "Connection refused error: 0x%x", event->error_handle->connect_return_code);
         } else {
-            ESP_LOGI(GATTC_TAG, "Unknown error type: 0x%x", event->error_handle->error_type);
+            ESP_LOGI(TAG, "Unknown error type: 0x%x", event->error_handle->error_type);
         }
         break;
     default:
-        ESP_LOGI(GATTC_TAG, "Other event id:%d", event->event_id);
+        ESP_LOGI(TAG, "Other event id:%d", event->event_id);
         break;
     }
 }
@@ -260,7 +262,7 @@ void mqtt_device_found(int index, esp_bd_addr_t mac) {
 
 void mqtt_device_state(int index, bool power_state, esp_bd_addr_t mac){
     if (!s_mqtt_client) {
-        ESP_LOGW(GATTC_TAG, "MQTT client not ready; skipping publish");
+        ESP_LOGW(TAG, "MQTT client not ready; skipping publish");
         return;
     }
     char mac_str[13]; // "AA:BB:CC:DD:EE:FF" + null
@@ -289,9 +291,9 @@ void mqtt_device_state(int index, bool power_state, esp_bd_addr_t mac){
     );
 
     if (msg_id >= 0) {
-        ESP_LOGI(GATTC_TAG, "Published state of device %d (%s): %s",
+        ESP_LOGI(TAG, "Published state of device %d (%s): %s",
                  index, mac_str, payload);
     } else {
-        ESP_LOGW(GATTC_TAG, "Failed to publish state for device %d", index);
+        ESP_LOGW(TAG, "Failed to publish state for device %d", index);
     }
 }

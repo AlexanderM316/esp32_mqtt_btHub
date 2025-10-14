@@ -6,6 +6,8 @@
 
 #define CMD_MAX_LEN 12 //  max length of w_cmd
 
+static const char *TAG = "GATT";
+
 static uint8_t w_cmd[CMD_MAX_LEN]; // default write cmd
 
 device_manager_t device_manager = {
@@ -78,8 +80,8 @@ static size_t build_cmd(uint8_t opcode, const uint8_t *payload, size_t payload_l
     w_cmd[3 + payload_len] = crc & 0xFF;                    // low byte first
     w_cmd[4 + payload_len] = (crc >> 8) & 0xFF;             // high byte
 
-    ESP_LOGI(GATTC_TAG, "Built command buffer:");
-    ESP_LOG_BUFFER_HEX(GATTC_TAG, w_cmd, sizeof(w_cmd));
+    ESP_LOGI(TAG, "Built command buffer:");
+    ESP_LOG_BUFFER_HEX(TAG, w_cmd, sizeof(w_cmd));
     size_t pkt_len = 3 + payload_len + 2; // header + payload + crc
     if (pkt_len > CMD_MAX_LEN) return 0;
     return pkt_len;
@@ -88,12 +90,12 @@ static size_t build_cmd(uint8_t opcode, const uint8_t *payload, size_t payload_l
 static void start_scanning(void)
 {
     if (device_manager.all_devices_found) {
-        ESP_LOGI(GATTC_TAG, "All devices already found");
+        ESP_LOGI(TAG, "All devices already found");
         return;
     }
     
     device_manager.scanning = true;
-    ESP_LOGI(GATTC_TAG, "Starting discovery for %d devices ...", MAX_DEVICES);
+    ESP_LOGI(TAG, "Starting discovery for %d devices ...", MAX_DEVICES);
     esp_ble_gap_start_scanning(30);
 }
 
@@ -101,14 +103,14 @@ static void stop_scanning(void)
 {
     device_manager.scanning = false;
     esp_ble_gap_stop_scanning();
-    ESP_LOGI(GATTC_TAG, "Scanning stopped");
+    ESP_LOGI(TAG, "Scanning stopped");
 }
 
 static bool control_device(int device_index, uint8_t *data, uint16_t length)
 { 
 
     if (device_index < 0 || device_index >= MAX_DEVICES) {
-        ESP_LOGE(GATTC_TAG, "Invalid device index: %d", device_index);
+        ESP_LOGE(TAG, "Invalid device index: %d", device_index);
         return false;
     }
     
@@ -116,21 +118,21 @@ static bool control_device(int device_index, uint8_t *data, uint16_t length)
     
     
     if (!device->connected) {
-        ESP_LOGE(GATTC_TAG, "Device %d is not connected... connecting", device_index);
+        ESP_LOGE(TAG, "Device %d is not connected... connecting", device_index);
         if(!connect_to_device(device_index)){
-            ESP_LOGE(GATTC_TAG, "Failed to connect to device, abort");
+            ESP_LOGE(TAG, "Failed to connect to device, abort");
             return false;
         }
         
     }
     
     if (device->char_handle == 0) {
-        ESP_LOGE(GATTC_TAG, "No characteristic handle for device %d", device_index);
+        ESP_LOGE(TAG, "No characteristic handle for device %d", device_index);
         return false;
     }
 
     if (device->write_char_handle  == 0) {
-        ESP_LOGE(GATTC_TAG, "No suitable characteristic handle for device %d", device_index);
+        ESP_LOGE(TAG, "No suitable characteristic handle for device %d", device_index);
         return false;
     }
     
@@ -144,10 +146,10 @@ static bool control_device(int device_index, uint8_t *data, uint16_t length)
         ESP_GATT_AUTH_REQ_NONE);
         
     if (ret == ESP_GATT_OK) {
-        ESP_LOGI(GATTC_TAG, "Successfully controlled Flood Light %d", device_index);
+        ESP_LOGI(TAG, "Successfully controlled Flood Light %d", device_index);
         return true;
     } else {
-        ESP_LOGE(GATTC_TAG, "Failed to control device %d: %d", device_index, ret);
+        ESP_LOGE(TAG, "Failed to control device %d: %d", device_index, ret);
         return false;
     }
 }
@@ -159,13 +161,13 @@ static void gattc_device_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t
 
     switch (event) {
     case ESP_GATTC_REG_EVT:
-        ESP_LOGI(GATTC_TAG, "Device %d registered with gattc_if %d", device_index, gattc_if);
+        ESP_LOGI(TAG, "Device %d registered with gattc_if %d", device_index, gattc_if);
         device->gattc_if = gattc_if;
         break;
         
     case ESP_GATTC_OPEN_EVT:
         if (p_data->open.status != ESP_GATT_OK){
-            ESP_LOGE(GATTC_TAG, "Device %d: connect failed, status %d", device_index, p_data->open.status);
+            ESP_LOGE(TAG, "Device %d: connect failed, status %d", device_index, p_data->open.status);
             device->connected = false;
             break;
         }
@@ -173,7 +175,7 @@ static void gattc_device_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t
         device->conn_id = p_data->open.conn_id;
         device->connected = true;
         
-        ESP_LOGI(GATTC_TAG, "Device %d: Successfully connected", device_index);
+        ESP_LOGI(TAG, "Device %d: Successfully connected", device_index);
         
         // Notify callback
         if (device_manager.device_connected_cb) {
@@ -182,15 +184,15 @@ static void gattc_device_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t
         
         esp_err_t mtu_ret = esp_ble_gattc_send_mtu_req(gattc_if, p_data->open.conn_id);
         if (mtu_ret){
-            ESP_LOGE(GATTC_TAG, "Device %d: MTU error = %x", device_index, mtu_ret);
+            ESP_LOGE(TAG, "Device %d: MTU error = %x", device_index, mtu_ret);
         }
         break;
         
     case ESP_GATTC_CFG_MTU_EVT:
         if (param->cfg_mtu.status != ESP_GATT_OK){
-            ESP_LOGE(GATTC_TAG, "Device %d: MTU config failed", device_index);
+            ESP_LOGE(TAG, "Device %d: MTU config failed", device_index);
         } else {
-            ESP_LOGI(GATTC_TAG, "Device %d: MTU %d", device_index, param->cfg_mtu.mtu);
+            ESP_LOGI(TAG, "Device %d: MTU %d", device_index, param->cfg_mtu.mtu);
             esp_ble_gattc_search_service(gattc_if, param->cfg_mtu.conn_id, NULL); //, &remote_filter_service_uuid);
         }
         break;
@@ -200,7 +202,7 @@ static void gattc_device_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t
             && p_data->search_res.srvc_id.uuid.uuid.uuid16 == REMOTE_SERVICE_UUID
             ) 
         {
-            ESP_LOGI(GATTC_TAG, "Device %d: Found service Service UUID: 0x%0X", device_index, p_data->search_res.srvc_id.uuid.uuid.uuid16);
+            ESP_LOGI(TAG, "Device %d: Found service Service UUID: 0x%0X", device_index, p_data->search_res.srvc_id.uuid.uuid.uuid16);
             device->service_start_handle = p_data->search_res.start_handle;
             device->service_end_handle = p_data->search_res.end_handle;
         }
@@ -209,11 +211,11 @@ static void gattc_device_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t
     
     case ESP_GATTC_SEARCH_CMPL_EVT:
         if (p_data->search_cmpl.status != ESP_GATT_OK){
-            ESP_LOGE(GATTC_TAG, "Device %d: service search failed = %x", device_index, p_data->search_cmpl.status);
+            ESP_LOGE(TAG, "Device %d: service search failed = %x", device_index, p_data->search_cmpl.status);
             break;
         }
 
-        ESP_LOGI(GATTC_TAG, "Device %d: Service discovery complete", device_index);
+        ESP_LOGI(TAG, "Device %d: Service discovery complete", device_index);
 
         // Get characteristics count
         uint16_t count = 0;
@@ -227,13 +229,13 @@ static void gattc_device_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t
             &count);
 
         if (status != ESP_GATT_OK || count == 0) {
-            ESP_LOGE(GATTC_TAG, "Device %d: No characteristics found", device_index);
+            ESP_LOGE(TAG, "Device %d: No characteristics found", device_index);
             break;
         }
 
         esp_gattc_char_elem_t *char_elem_result = malloc(sizeof(esp_gattc_char_elem_t) * count);
         if (!char_elem_result) {
-            ESP_LOGE(GATTC_TAG, "Device %d: No memory for characteristics", device_index);
+            ESP_LOGE(TAG, "Device %d: No memory for characteristics", device_index);
             break;
         }
 
@@ -257,7 +259,7 @@ static void gattc_device_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t
             (char_elem_result[0].properties & ESP_GATT_CHAR_PROP_BIT_NOTIFY)) {
             device->char_handle = char_elem_result[0].char_handle;
             esp_ble_gattc_register_for_notify(gattc_if, device->mac_address, char_elem_result[0].char_handle);
-            ESP_LOGI(GATTC_TAG, "Device %d: Registered for notifications (handle 0x%08x)", device_index, device->char_handle);
+            ESP_LOGI(TAG, "Device %d: Registered for notifications (handle 0x%08x)", device_index, device->char_handle);
         }
 
         esp_bt_uuid_t write_uuid = {
@@ -278,9 +280,9 @@ static void gattc_device_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t
         if (st2 == ESP_GATT_OK && write_count > 0 &&
             (char_elem_result[0].properties & (ESP_GATT_CHAR_PROP_BIT_WRITE | ESP_GATT_CHAR_PROP_BIT_WRITE_NR))) {
             device->write_char_handle = char_elem_result[0].char_handle;
-            ESP_LOGI(GATTC_TAG, "Device %d: Found write characteristic (handle 0x%08x)", device_index, device->write_char_handle);
+            ESP_LOGI(TAG, "Device %d: Found write characteristic (handle 0x%08x)", device_index, device->write_char_handle);
         } else {
-            ESP_LOGW(GATTC_TAG, "Device %d: write characteristic not found (UUID 0x%04x)", device_index, REMOTE_WRITE_CHAR_UUID);
+            ESP_LOGW(TAG, "Device %d: write characteristic not found (UUID 0x%04x)", device_index, REMOTE_WRITE_CHAR_UUID);
         }
 
         free(char_elem_result);
@@ -289,7 +291,7 @@ static void gattc_device_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t
         
     case ESP_GATTC_REG_FOR_NOTIFY_EVT: {
         if (p_data->reg_for_notify.status != ESP_GATT_OK){
-            ESP_LOGE(GATTC_TAG, "Device %d: notify registration failed = %x", device_index, p_data->reg_for_notify.status);
+            ESP_LOGE(TAG, "Device %d: notify registration failed = %x", device_index, p_data->reg_for_notify.status);
             break;
         }
         
@@ -305,13 +307,13 @@ static void gattc_device_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t
             &count);
             
         if (ret_status != ESP_GATT_OK || count == 0){
-            ESP_LOGE(GATTC_TAG, "Device %d: no descriptors found", device_index);
+            ESP_LOGE(TAG, "Device %d: no descriptors found", device_index);
             break;
         }
         
         esp_gattc_descr_elem_t *descr_elem_result = malloc(sizeof(esp_gattc_descr_elem_t) * count);
         if (!descr_elem_result){
-            ESP_LOGE(GATTC_TAG, "Device %d: no memory for descriptors", device_index);
+            ESP_LOGE(TAG, "Device %d: no memory for descriptors", device_index);
             break;
         }
         
@@ -336,7 +338,7 @@ static void gattc_device_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t
                 ESP_GATT_WRITE_TYPE_RSP,
                 ESP_GATT_AUTH_REQ_NONE);
                 
-            ESP_LOGI(GATTC_TAG, "Device %d: Notifications enabled", device_index);
+            ESP_LOGI(TAG, "Device %d: Notifications enabled", device_index);
         }
         
         free(descr_elem_result);
@@ -344,13 +346,13 @@ static void gattc_device_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t
     }
 
     case ESP_GATTC_NOTIFY_EVT:
-        ESP_LOGI(GATTC_TAG, "Device %d: Received notification", device_index);
-        ESP_LOG_BUFFER_HEX(GATTC_TAG, p_data->notify.value, p_data->notify.value_len);
+        ESP_LOGI(TAG, "Device %d: Received notification", device_index);
+        ESP_LOG_BUFFER_HEX(TAG, p_data->notify.value, p_data->notify.value_len);
         decode_notification(device_index,p_data->notify.value, p_data->notify.value_len);
         break;
         
     case ESP_GATTC_DISCONNECT_EVT:
-        ESP_LOGI(GATTC_TAG, "Device %d: Disconnected", device_index);
+        ESP_LOGI(TAG, "Device %d: Disconnected", device_index);
         device->connected = false;
         device->conn_id = 0;
         device->char_handle = 0;
@@ -390,7 +392,7 @@ void device_manager_init(void)
     device_manager.device_connected_cb = NULL;
     device_manager.device_disconnected_cb = NULL;
     
-    ESP_LOGI(GATTC_TAG, "Device Manager initialized for %d devices", MAX_DEVICES);
+    ESP_LOGI(TAG, "Device Manager initialized for %d devices", MAX_DEVICES);
 }
 
 void device_manager_set_callbacks(
@@ -410,7 +412,7 @@ void device_manager_set_callbacks(
 void start_device_discovery(void)
 {
     if (device_manager.scanning) {
-        ESP_LOGI(GATTC_TAG, "Discovery already in progress");
+        ESP_LOGI(TAG, "Discovery already in progress");
         return;
     }
     
@@ -431,27 +433,27 @@ int find_device_by_mac(esp_bd_addr_t mac_addr)
 bool connect_to_device(int device_index)
 {
     if (device_index < 0 || device_index >= device_manager.discovered_count) {
-        ESP_LOGE(GATTC_TAG, "Invalid device index: %d", device_index);
+        ESP_LOGE(TAG, "Invalid device index: %d", device_index);
         return false;
     }
     
     flood_light_device_t *device = &device_manager.devices[device_index];
     
     if (device->connected) {
-        ESP_LOGI(GATTC_TAG, "Device %d already connected", device_index);
+        ESP_LOGI(TAG, "Device %d already connected", device_index);
         return true;
     }
     
     if (device->gattc_if == ESP_GATT_IF_NONE) {
-        ESP_LOGE(GATTC_TAG, "Device %d not registered yet", device_index);
+        ESP_LOGE(TAG, "Device %d not registered yet", device_index);
         return false;
     }
     
-    ESP_LOGI(GATTC_TAG, "Connecting to Flood Light %d", device_index);
+    ESP_LOGI(TAG, "Connecting to Flood Light %d", device_index);
     
     esp_err_t ret = esp_ble_gattc_open(device->gattc_if, device->mac_address, BLE_ADDR_TYPE_PUBLIC, true);
     if (ret != ESP_OK) {
-        ESP_LOGE(GATTC_TAG, "Failed to initiate connection: %d", ret);
+        ESP_LOGE(TAG, "Failed to initiate connection: %d", ret);
         return false;
     }
     
@@ -461,20 +463,20 @@ bool connect_to_device(int device_index)
 bool disconnect_from_device(int device_index)
 {
     if (device_index < 0 || device_index >= MAX_DEVICES) {
-        ESP_LOGE(GATTC_TAG, "Invalid device index: %d", device_index);
+        ESP_LOGE(TAG, "Invalid device index: %d", device_index);
         return false;
     }
     
     flood_light_device_t *device = &device_manager.devices[device_index];
     
     if (!device->connected) {
-        ESP_LOGE(GATTC_TAG, "Device %d is not connected", device_index);
+        ESP_LOGE(TAG, "Device %d is not connected", device_index);
         return false;
     }
     
     esp_err_t ret = esp_ble_gattc_close(device->gattc_if, device->conn_id);
     if (ret != ESP_OK) {
-        ESP_LOGE(GATTC_TAG, "Failed to disconnect device %d: %d", device_index, ret);
+        ESP_LOGE(TAG, "Failed to disconnect device %d: %d", device_index, ret);
         return false;
     }
     
@@ -524,7 +526,7 @@ void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param)
         
     case ESP_GAP_BLE_SCAN_START_COMPLETE_EVT:
         if (!(param->scan_start_cmpl.status == ESP_BT_STATUS_SUCCESS)) {
-             ESP_LOGE(GATTC_TAG, "Scan start failed");
+             ESP_LOGE(TAG, "Scan start failed");
         }
         break;
         
@@ -565,8 +567,8 @@ void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param)
                         strncpy(device->name, REMOTE_DEVICE_NAME, sizeof(device->name) - 1);
                         device->discovered = true;
                         
-                        ESP_LOGI(GATTC_TAG, "Discovered Flood Light #%d", new_index);
-                        ESP_LOG_BUFFER_HEX(GATTC_TAG, scan_result->scan_rst.bda, 6);
+                        ESP_LOGI(TAG, "Discovered Flood Light #%d", new_index);
+                        ESP_LOG_BUFFER_HEX(TAG, scan_result->scan_rst.bda, 6);
                         
                         device_manager.discovered_count++;
 
@@ -579,7 +581,7 @@ void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param)
                         if (device_manager.discovered_count >= MAX_DEVICES) {
                             device_manager.all_devices_found = true;
                             stop_scanning();
-                            ESP_LOGI(GATTC_TAG, "All %d Flood Lights found!", MAX_DEVICES);
+                            ESP_LOGI(TAG, "All %d Flood Lights found!", MAX_DEVICES);
                             
                             if (device_manager.all_devices_found_cb) {
                                 device_manager.all_devices_found_cb();
@@ -592,12 +594,12 @@ void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param)
             
         case ESP_GAP_SEARCH_INQ_CMPL_EVT:
             if (!device_manager.all_devices_found) {
-                ESP_LOGI(GATTC_TAG, "Scan completed, found %d/%d devices. Restarting scan in 3s", 
+                ESP_LOGI(TAG, "Scan completed, found %d/%d devices. Restarting scan in 3s", 
                         device_manager.discovered_count, MAX_DEVICES);
                 vTaskDelay(pdMS_TO_TICKS(3000));
                 start_scanning();
             } else {
-                ESP_LOGI(GATTC_TAG, "Scan completed - all devices found");
+                ESP_LOGI(TAG, "Scan completed - all devices found");
             }
             break;
             
@@ -609,9 +611,9 @@ void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param)
     
     case ESP_GAP_BLE_SCAN_STOP_COMPLETE_EVT:
         if (param->scan_stop_cmpl.status != ESP_BT_STATUS_SUCCESS){
-            ESP_LOGE(GATTC_TAG, "Scan stop failed");
+            ESP_LOGE(TAG, "Scan stop failed");
         } else {
-            ESP_LOGI(GATTC_TAG, "Scan stopped successfully");
+            ESP_LOGI(TAG, "Scan stopped successfully");
             device_manager.scanning = false;
         }
         break;
@@ -630,7 +632,7 @@ void esp_gattc_cb(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp_ble_ga
         device_index = param->reg.app_id;
         if (device_index < MAX_DEVICES) {
             device_manager.devices[device_index].gattc_if = gattc_if;
-            ESP_LOGI(GATTC_TAG, "Device %d assigned gattc_if %d", device_index, gattc_if);
+            ESP_LOGI(TAG, "Device %d assigned gattc_if %d", device_index, gattc_if);
         }
     } else {
         // For other events, find the device by gattc_if
@@ -645,6 +647,6 @@ void esp_gattc_cb(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp_ble_ga
     if (device_index >= 0 && device_index < MAX_DEVICES) {
         gattc_device_event_handler(event, gattc_if, param, device_index);
     } else {
-        ESP_LOGW(GATTC_TAG, "Event %d for unknown gattc_if: %d", event, gattc_if);
+        ESP_LOGW(TAG, "Event %d for unknown gattc_if: %d", event, gattc_if);
     }
 }

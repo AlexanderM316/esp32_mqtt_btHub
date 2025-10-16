@@ -1,5 +1,6 @@
 #include "wifi_manager.h"
 #include "mqtt_manager.h"
+#include "httpd_manager.h"
 #include "common.h"
 
 #include <stdint.h>
@@ -94,6 +95,8 @@ void app_main(void)
     }
     // Register the MQTT callback
     device_manager_set_callbacks(mqtt_device_found, NULL, NULL, NULL,mqtt_device_state);
+    // Register the httpd server callbacks
+    httpd_manager_set_callbacks(wifi_update_credentials, mqtt_update_config);
 
     // Start discovery
     ESP_LOGI(TAG, "Starting device discovery...");

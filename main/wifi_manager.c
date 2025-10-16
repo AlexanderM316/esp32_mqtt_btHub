@@ -87,7 +87,6 @@ void wifi_init(void)
     ESP_ERROR_CHECK(esp_event_loop_create_default());
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
-    httpd_manager_set_callbacks(wifi_update_credentials);
 
     if (err != ESP_OK || strlen(ssid) == 0) {
         // No stored credentials → start fallback AP immediately
@@ -139,7 +138,7 @@ void wifi_init(void)
 
     if (bits & WIFI_CONNECTED_BIT) {
         ESP_LOGI(TAG, "Connected to AP SSID: %s", wifi_config.sta.ssid);
-        //httpd_manager_start(false);
+        httpd_manager_start(false);
     } else if (bits & WIFI_FAIL_BIT) {
         ESP_LOGI(TAG, "Failed to connect to SSID: %s, switching to AP mode", wifi_config.sta.password);
         wifi_start_ap();

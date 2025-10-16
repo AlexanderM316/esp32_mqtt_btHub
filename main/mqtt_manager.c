@@ -3,10 +3,58 @@
 
 #include "mqtt_client.h"
 #include "cJSON.h"
+#include "nvs.h"
+
+#define MQTT_NAMESPACE "mqtt"
 
 static const char *TAG = "MQTT";
 
 static esp_mqtt_client_handle_t s_mqtt_client = NULL;
+static char mqtt_prefix[32] = {0}; // mqtt discovery prefix
+
+/**
+ * @brief load mqtt config from nvs 
+*/
+static esp_err_t mqtt_load_config(
+    char* broker, size_t broker_len,
+    char* prefix, size_t prefix_len,
+    char* user, size_t user_len,
+    char* pass, size_t pass_len)
+{
+    nvs_handle_t handle;
+    esp_err_t err = nvs_open(MQTT_NAMESPACE, NVS_READONLY, &handle);
+    if (err != ESP_OK) return err;
+
+    err = nvs_get_str(handle, "broker", broker, &broker_len);
+    if (err != ESP_OK) { nvs_close(handle); return err; }
+
+    err = nvs_get_str(handle, "prefix", prefix, &prefix_len);
+    if (err != ESP_OK) { nvs_close(handle); return err; }
+
+    err = nvs_get_str(handle, "user", user, &user_len);
+    if (err != ESP_OK) { nvs_close(handle); return err; }
+
+    err = nvs_get_str(handle, "pass", pass, &pass_len);
+    nvs_close(handle);
+    return err;
+}
+/**
+ * @brief save mqtt config to nvs 
+*/
+static esp_err_t mqtt_save_config(const char* broker, const char* prefix, const char* user, const char* pass)
+{
+    nvs_handle_t handle;
+    esp_err_t err = nvs_open(MQTT_NAMESPACE, NVS_READWRITE, &handle);
+    if (err != ESP_OK) return err;
+
+    nvs_set_str(handle, "broker", broker);
+    nvs_set_str(handle, "prefix", prefix);
+    nvs_set_str(handle, "user", user);
+    nvs_set_str(handle, "pass", pass);
+    nvs_commit(handle);
+    nvs_close(handle);
+    return ESP_OK;
+}
 
 static void mqtt_discovery(int device_index)
 {
@@ -29,10 +77,10 @@ static void mqtt_discovery(int device_index)
              device->mac_address[0], device->mac_address[1], device->mac_address[2],
              device->mac_address[3], device->mac_address[4], device->mac_address[5]);
 
-    char discovery_topic[64];
+    char discovery_topic[80];
     snprintf(discovery_topic, sizeof(discovery_topic), 
              "%s/light/esp32_floodlight_%s/config", 
-             MQTT_HA_DISCOVERY_PREFIX, dev_mac_str);
+             mqtt_prefix, dev_mac_str);
 
     char discovery_payload[512];
     snprintf(discovery_payload, sizeof(discovery_payload),
@@ -200,19 +248,19 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
 
         break;
     case MQTT_EVENT_DISCONNECTED:
-        ESP_LOGI(TAG, "MQTT_EVENT_DISCONNECTED");
+        ESP_LOGI(TAG, "EVENT_DISCONNECTED");
         break;
     case MQTT_EVENT_SUBSCRIBED:
-        ESP_LOGI(TAG, "MQTT_EVENT_SUBSCRIBED, msg_id=%d", event->msg_id);
+        ESP_LOGI(TAG, "EVENT_SUBSCRIBED, msg_id=%d", event->msg_id);
         break;
     case MQTT_EVENT_UNSUBSCRIBED:
-        ESP_LOGI(TAG, "MQTT_EVENT_UNSUBSCRIBED, msg_id=%d", event->msg_id);
+        ESP_LOGI(TAG, "EVENT_UNSUBSCRIBED, msg_id=%d", event->msg_id);
         break;
     case MQTT_EVENT_PUBLISHED:
-        ESP_LOGI(TAG, "MQTT_EVENT_PUBLISHED, msg_id=%d", event->msg_id);
+        ESP_LOGI(TAG, "EVENT_PUBLISHED, msg_id=%d", event->msg_id);
         break;
     case MQTT_EVENT_DATA:
-        ESP_LOGI(TAG, "MQTT_EVENT_DATA");
+        ESP_LOGI(TAG, "EVENT_DATA");
         printf("TOPIC=%.*s\r\n", event->topic_len, event->topic);
         printf("DATA=%.*s\r\n", event->data_len, event->data);
         mqtt_handle_command(event->topic, event->topic_len, event->data, event->data_len);
@@ -239,20 +287,31 @@ void mqtt_start(void)
 {
     char client_id[32];
     uint8_t mac[6];
+    char broker[64] = {0};
+    char user[32] = {0};
+    char pass[32] = {0};
     
+    esp_err_t err = mqtt_load_config(broker, sizeof(broker), mqtt_prefix, sizeof(mqtt_prefix), user, sizeof(user), pass, sizeof(pass));
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to load config from NVS (%s)", esp_err_to_name(err));
+        return;
+    }
+
     esp_efuse_mac_get_default(mac);
     snprintf(client_id, sizeof(client_id), "esp32_bt_hub_%02x%02x%02x", mac[3], mac[4], mac[5]);
 
     esp_mqtt_client_config_t mqtt_cfg = {
-        .broker.address.uri = MQTT_BROKER_URL,
-        .credentials.username = MQTT_USERNAME,
-        .credentials.authentication.password = MQTT_PASSWORD,
+        .broker.address.uri = broker,
+        .credentials.username = user,
+        .credentials.authentication.password = pass,
         .credentials.client_id = client_id,
     };
 
     s_mqtt_client = esp_mqtt_client_init(&mqtt_cfg);
     esp_mqtt_client_register_event(s_mqtt_client, ESP_EVENT_ANY_ID, mqtt_event_handler, NULL);
     esp_mqtt_client_start(s_mqtt_client);
+
+    ESP_LOGI(TAG, "MQTT client started with broker %s, prefix %s", broker, mqtt_prefix);
 }
 
 void mqtt_device_found(int index, esp_bd_addr_t mac) {
@@ -296,4 +355,23 @@ void mqtt_device_state(int index, bool power_state, esp_bd_addr_t mac){
     } else {
         ESP_LOGW(TAG, "Failed to publish state for device %d", index);
     }
+}
+
+void mqtt_update_config(const char *broker, const char *prefix, const char *user, const char *pass){
+
+    ESP_LOGI(TAG, "Updating mqtt config");
+
+    esp_err_t err = mqtt_save_config(broker, prefix, user, pass);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to save config to NVS (%s)", esp_err_to_name(err));
+        return;
+    }
+
+    if (s_mqtt_client) {
+        ESP_LOGI(TAG, "Stopping previous MQTT client");
+        esp_mqtt_client_stop(s_mqtt_client);
+        esp_mqtt_client_destroy(s_mqtt_client);
+        s_mqtt_client = NULL;
+    }
+    mqtt_start();
 }

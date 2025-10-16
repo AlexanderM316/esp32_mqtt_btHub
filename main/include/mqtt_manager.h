@@ -22,5 +22,13 @@ void mqtt_device_found(int device_index, esp_bd_addr_t mac);
  * @param mac address of new device
  */
 void mqtt_device_state(int index, bool power_state, esp_bd_addr_t mac);
+/**
+ * @brief set mqtt config from http
+ * @param *broker adress of the broker
+ * @param *prefix prefix for auto discovery
+ * @param *user username
+ * @param *pass password
+ */                             
+void mqtt_update_config(const char *broker, const char *prefix, const char *user, const char *pass);
 
 #endif // mqtt_manager_H

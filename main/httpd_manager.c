@@ -6,11 +6,26 @@
 #include "esp_netif.h"
 #include "esp_littlefs.h"
 #include "cJSON.h"
+#include "nvs.h"
+
+#include "iot_button.h" // for httpd reset login by button
+#include "button_gpio.h"
+#include "driver/gpio.h"
+
+#define FLASH_BUTTON GPIO_NUM_0  // BOOT/FLASH button
+
+#define HTTPD_NAMESPACE "httpd"
 
 static const char *TAG = "HTTPD";
 
 static httpd_handle_t server = NULL;
 static dns_server_t *dns_server = NULL;
+static button_handle_t btn = NULL;
+// session info
+typedef struct {
+    bool is_authenticated;
+    char user[16];
+} session_data_t;
 
 // Callback storage
 static struct {
@@ -96,11 +111,170 @@ static esp_err_t captive_submit_post(httpd_req_t *req)
     httpd_resp_send(req, resp, HTTPD_RESP_USE_STRLEN);
     return ESP_OK;
 }
+////////////// cpative portal methods end here
+/**
+ * @brief helper to check session
+*/
+static bool check_session(httpd_req_t *req) {
+    session_data_t *sess = (session_data_t *)req->sess_ctx;
+    return sess && sess->is_authenticated;
+}
+/**
+ * @brief load login credentails from nvs 
+*/
+static esp_err_t httpd_load_credentials(char* user, size_t user_len, char* pass, size_t pass_len)
+{
+    nvs_handle_t nvs;
+    esp_err_t err = nvs_open(HTTPD_NAMESPACE, NVS_READONLY, &nvs);
+    if (err != ESP_OK) return err;
+
+    err = nvs_get_str(nvs, "user", user, &user_len);
+    if (err != ESP_OK) { nvs_close(nvs); return err; }
+
+    err = nvs_get_str(nvs, "pass", pass, &pass_len);
+    nvs_close(nvs);
+    return err;
+}
+/**
+ * @brief save login credentails to nvs 
+*/
+static esp_err_t httpd_save_credentials(const char* user, const char* pass)
+{
+    nvs_handle_t nvs;
+    esp_err_t err = nvs_open(HTTPD_NAMESPACE, NVS_READWRITE, &nvs);
+    if (err != ESP_OK) return err;
+
+    nvs_set_str(nvs, "user", user);
+    nvs_set_str(nvs, "pass", pass);
+    nvs_commit(nvs);
+    nvs_close(nvs);
+    return ESP_OK;
+}
+/**
+ * @brief Resets login credentials in NVS to admin/admin
+ */
+static esp_err_t reset_login_credentials(void)
+{
+    esp_err_t err = httpd_save_credentials("admin", "admin");
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to reset credentials: %s", esp_err_to_name(err));
+        return err;
+    }
+    ESP_LOGI(TAG, "Login credentials reset to admin/admin");
+    return err;
+}
+/**
+ * @brief set defualt credentails if they don't exist
+*/
+static esp_err_t check_default_credentials(void)
+{
+    char user[16] = {0}, pass[16] = {0};
+
+    esp_err_t err = httpd_load_credentials(user, sizeof(user), pass, sizeof(pass));
+    if (err == ESP_ERR_NVS_NOT_FOUND) {
+        // Keys not found → write default credentials
+        esp_err_t err = reset_login_credentials();
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to save defualt credentials to NVS (%s)", esp_err_to_name(err));
+            return err;
+        }
+        return ESP_OK;
+    } else if (err != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to read credentials from NVS");
+        return err;
+    }
+
+    // Credentials exist, nothing to do
+    return ESP_OK;
+}
+/**
+ * @brief login page handler
+ */ 
+static esp_err_t login_post_handler(httpd_req_t *req) {
+    
+    char buf[64];
+    int ret = httpd_req_recv(req, buf, sizeof(buf) - 1);
+    if (ret <= 0) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Empty request");
+        return ESP_FAIL;
+    }
+    buf[ret] = '\0';
+
+    cJSON *json = cJSON_Parse(buf);
+    if (!json) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
+        return ESP_FAIL;
+    }
+
+    const char *entered_user = cJSON_GetStringValue(cJSON_GetObjectItem(json, "user"));
+    const char *entered_pass = cJSON_GetStringValue(cJSON_GetObjectItem(json, "pass"));
+    
+
+    if (!entered_user || !entered_pass) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing user/pass");
+        cJSON_Delete(json);
+        return ESP_FAIL;
+    }
+
+    // Load stored credentials from NVS
+    char stored_user[16] = {0};
+    char stored_pass[16] = {0};
+    esp_err_t err = httpd_load_credentials(stored_user, sizeof(stored_user), stored_pass, sizeof(stored_pass));
+    if (err != ESP_OK) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to read credentials");
+        cJSON_Delete(json);
+        return ESP_FAIL;
+    }
+
+   if (strcmp(entered_user, stored_user) == 0 && strcmp(entered_pass, stored_pass) == 0) {
+        // Allocate session context if not already
+        if (!req->sess_ctx) {
+            req->sess_ctx = malloc(sizeof(session_data_t));
+            if (!req->sess_ctx) return ESP_ERR_NO_MEM;
+        }
+        session_data_t *sess = (session_data_t *)req->sess_ctx;
+        sess->is_authenticated = true;
+        strncpy(sess->user, entered_user, sizeof(sess->user) - 1);
+
+        // Set HttpOnly cookie
+        httpd_resp_set_hdr(req, "Set-Cookie", "session=1; HttpOnly");
+
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_sendstr(req, "{\"success\":true}");
+        ESP_LOGI(TAG, "Login successful for user %s", entered_user);
+    } else {
+        httpd_resp_send_err(req, HTTPD_401_UNAUTHORIZED, "Invalid credentials");
+        ESP_LOGW(TAG, "Login failed for user %s", entered_user);
+    }
+    cJSON_Delete(json);
+    return ESP_OK;
+}
+/**
+ * @brief List of assets that don't require login
+ * @param uri 
+ * @return true/false
+ */ 
+static bool is_public_asset(const char *uri) {
+     
+    static const char *assets[] = { "/login.html", "/login.js", "/index.css" };
+    for (size_t i = 0; i < sizeof(assets)/sizeof(assets[0]); i++) {
+        if (strcmp(uri, assets[i]) == 0) return true;
+    }
+    return false;
+}
 /**
  * @brief normal handler
  */ 
 static esp_err_t littlefs_handler(httpd_req_t *req)
 {
+    // If login required, redirect
+    if (!check_session(req) && !is_public_asset(req->uri)) {
+        httpd_resp_set_status(req, "302 Found");
+        httpd_resp_set_hdr(req, "Location", "/login.html");
+        httpd_resp_send(req, "Redirecting to login...", HTTPD_RESP_USE_STRLEN);
+        return ESP_OK;
+    }
+
     char filepath[128];
     size_t uri_len = strlen(req->uri);
     if (uri_len > 100) uri_len = 100;  // ensure it fits
@@ -195,6 +369,11 @@ static esp_err_t ble_submit_post(httpd_req_t *req)
     return ESP_OK;
 }
 
+static void long_press_cb(void *arg, void *usr_data) {
+    reset_login_credentials();
+}
+
+
 void httpd_manager_start(bool captive_portal)
 {
     if (server) {
@@ -246,6 +425,30 @@ void httpd_manager_start(bool captive_portal)
         httpd_register_err_handler(server, HTTPD_404_NOT_FOUND, captive_detection_handler);
     } else { // normal mode
 
+        check_default_credentials();
+
+         /* configure button timings */
+        button_config_t button_cfg = {
+            .long_press_time = 3000  
+        };
+
+        /* configure GPIO specifics */
+        button_gpio_config_t gpio_cfg = {
+            .gpio_num = FLASH_BUTTON,
+            .active_level = 0,         /* active low */
+            .enable_power_save = false,
+            .disable_pull = false    
+        };
+
+        esp_err_t err = iot_button_new_gpio_device(&button_cfg, &gpio_cfg, &btn);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to create GPIO button device: %s", esp_err_to_name(err));
+        } else {
+            // register callback for long press start
+            iot_button_register_cb(btn, BUTTON_LONG_PRESS_START, NULL, long_press_cb, NULL);
+            ESP_LOGI(TAG, "FLASH button initialized on GPIO %d; hold %d ms to reset credentials", FLASH_BUTTON, button_cfg.long_press_time);
+        }
+
         esp_vfs_littlefs_conf_t conf = {
             .base_path = "/web",
             .partition_label = "web",
@@ -280,7 +483,16 @@ void httpd_manager_start(bool captive_portal)
             .handler = ble_submit_post,
             .user_ctx = NULL
         };
-        httpd_register_uri_handler(server, &ble_submit_uri);  
+        httpd_register_uri_handler(server, &ble_submit_uri); 
+
+        httpd_uri_t login_uri = {
+        .uri = "/login",
+        .method = HTTP_POST,
+        .handler = login_post_handler,
+        .user_ctx = NULL
+        };
+        httpd_register_uri_handler(server, &login_uri);
+ 
     }
 }
 

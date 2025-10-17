@@ -25,5 +25,4 @@ void httpd_manager_set_callbacks(
     wifi_credentials_cb_t  wifi_credentials,
     mqtt_config_cb_t mqtt_config,
     ble_config_cb_t ble_config);
-
 #endif //httpd_manager_H

@@ -10,6 +10,10 @@ typedef void (*wifi_credentials_cb_t)(const char *ssid, const char *pass);
  */
 typedef void (*mqtt_config_cb_t)(const char *broker, const char *prefix, const char *user, const char *pass);
 /**
+ * @brief Type for ble(gatt) config save callback
+ */
+typedef void (*ble_config_cb_t)(const char *device_name);
+/**
  * @brief Start the HTTP server.
  * @param captive_portal  true for AP/captive portal mode
  */
@@ -19,6 +23,7 @@ void httpd_manager_start(bool captive_portal);
  */
 void httpd_manager_set_callbacks(
     wifi_credentials_cb_t  wifi_credentials,
-    mqtt_config_cb_t mqtt_config);
+    mqtt_config_cb_t mqtt_config,
+    ble_config_cb_t ble_config);
 
 #endif //httpd_manager_H

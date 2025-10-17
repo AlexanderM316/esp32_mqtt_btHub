@@ -1,6 +1,6 @@
 #include "mqtt_manager.h"
-#include "common.h"
 
+#include "esp_log.h"
 #include "mqtt_client.h"
 #include "cJSON.h"
 #include "nvs.h"

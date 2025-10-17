@@ -1,14 +1,19 @@
 #include "device_manager.h"
-#include "common.h"
 
+#include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "nvs.h"
+
+#define GATT_NAMESPACE "gatt"
 
 #define CMD_MAX_LEN 12 //  max length of w_cmd
 
 static const char *TAG = "GATT";
 
 static uint8_t w_cmd[CMD_MAX_LEN]; // default write cmd
+
+static char remote_device_name[32] = {0}; // bluetooth device name
 
 device_manager_t device_manager = {
     .scanning = false,
@@ -25,6 +30,35 @@ static esp_bt_uuid_t notify_descr_uuid = {
     .len = ESP_UUID_LEN_16,
     .uuid = {.uuid16 = ESP_GATT_UUID_CHAR_CLIENT_CONFIG,},
 };
+/**
+ * @brief load gatt config from nvs 
+*/
+static esp_err_t gatt_load_config(char* device_name, size_t device_name_len)
+{
+    nvs_handle_t handle;
+    esp_err_t err = nvs_open(GATT_NAMESPACE, NVS_READONLY, &handle);
+    if (err != ESP_OK) return err;
+
+    err = nvs_get_str(handle, "device_name", device_name, &device_name_len);
+    if (err != ESP_OK) { nvs_close(handle); return err; }
+
+    nvs_close(handle);
+    return err;
+}
+/**
+ * @brief save gatt config to nvs 
+*/
+static esp_err_t gatt_save_config(const char* device_name)
+{
+    nvs_handle_t handle;
+    esp_err_t err = nvs_open(GATT_NAMESPACE, NVS_READWRITE, &handle);
+    if (err != ESP_OK) return err;
+
+    nvs_set_str(handle, "device_name", device_name);
+    nvs_commit(handle);
+    nvs_close(handle);
+    return ESP_OK;
+}
 /**
  * @brief Modbus CRC function 
 */
@@ -391,7 +425,12 @@ void device_manager_init(void)
     device_manager.all_devices_found_cb = NULL;
     device_manager.device_connected_cb = NULL;
     device_manager.device_disconnected_cb = NULL;
-    
+
+    esp_err_t err = gatt_load_config(remote_device_name, sizeof(remote_device_name));
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to load config from NVS (%s)", esp_err_to_name(err));
+        return;
+    }
     ESP_LOGI(TAG, "Device Manager initialized for %d devices", MAX_DEVICES);
 }
 
@@ -546,8 +585,8 @@ void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param)
                 &adv_name_len);
                 
             if (adv_name != NULL) {
-                if (strlen(REMOTE_DEVICE_NAME) == adv_name_len && 
-                    strncmp((char *)adv_name, REMOTE_DEVICE_NAME, adv_name_len) == 0) {
+                if (strlen(remote_device_name) == adv_name_len && 
+                    strncmp((char *)adv_name, remote_device_name, adv_name_len) == 0) {
 
                     // Check if we already have this device
                     bool exists = false;
@@ -564,10 +603,10 @@ void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param)
                         flood_light_device_t *device = &device_manager.devices[new_index];
                         
                         memcpy(device->mac_address, scan_result->scan_rst.bda, ESP_BD_ADDR_LEN);
-                        strncpy(device->name, REMOTE_DEVICE_NAME, sizeof(device->name) - 1);
+                        strncpy(device->name, remote_device_name, sizeof(device->name) - 1);
                         device->discovered = true;
                         
-                        ESP_LOGI(TAG, "Discovered Flood Light #%d", new_index);
+                        ESP_LOGI(TAG, "Discovered device #%d", new_index);
                         ESP_LOG_BUFFER_HEX(TAG, scan_result->scan_rst.bda, 6);
                         
                         device_manager.discovered_count++;
@@ -581,7 +620,7 @@ void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param)
                         if (device_manager.discovered_count >= MAX_DEVICES) {
                             device_manager.all_devices_found = true;
                             stop_scanning();
-                            ESP_LOGI(TAG, "All %d Flood Lights found!", MAX_DEVICES);
+                            ESP_LOGI(TAG, "All %d devices found!", MAX_DEVICES);
                             
                             if (device_manager.all_devices_found_cb) {
                                 device_manager.all_devices_found_cb();
@@ -649,4 +688,35 @@ void esp_gattc_cb(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp_ble_ga
     } else {
         ESP_LOGW(TAG, "Event %d for unknown gattc_if: %d", event, gattc_if);
     }
+}
+
+void ble_update_config(const char *device_name)
+{
+    ESP_LOGI(TAG, "Updating device name='%s'", device_name);
+
+    esp_err_t err = gatt_save_config(device_name);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to save config to NVS (%s)", esp_err_to_name(err));
+        return;
+    }
+    // Update runtime variable
+    strncpy(remote_device_name, device_name, sizeof(remote_device_name) - 1);
+    remote_device_name[sizeof(remote_device_name) - 1] = '\0';
+
+    // Stop scanning if in progress
+    if (device_manager.scanning) {
+        stop_scanning();
+    }
+
+    // Reset device list
+    for (int i = 0; i < MAX_DEVICES; i++) {
+        memset(&device_manager.devices[i], 0, sizeof(flood_light_device_t));
+    }
+    device_manager.discovered_count = 0;
+    device_manager.all_devices_found = false;
+
+    // Restart discovery
+    start_device_discovery();
+
+    ESP_LOGI(TAG, "Discovery restarted for new BLE target name");
 }

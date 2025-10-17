@@ -16,6 +16,7 @@ static dns_server_t *dns_server = NULL;
 static struct {
     wifi_credentials_cb_t wifi_credentials_cb;
     mqtt_config_cb_t mqtt_config_cb;
+    ble_config_cb_t ble_config_cb;
 } httpd_callbacks = {0};
 
 // simple hardcoded form for the captive portal
@@ -162,6 +163,37 @@ static esp_err_t mqtt_submit_post(httpd_req_t *req)
     httpd_resp_sendstr(req, "{\"success\":true}");
     return ESP_OK;
 }
+/**
+ * @brief submit ble config
+ */ 
+static esp_err_t ble_submit_post(httpd_req_t *req)
+{
+    char buf[64];
+    int ret = httpd_req_recv(req, buf, sizeof(buf) - 1);
+    
+    if (ret <= 0) {
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
+    buf[ret] = '\0';
+    cJSON *json = cJSON_Parse(buf);
+    if (!json) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
+        return ESP_FAIL;
+    }
+
+    const char *ble_name = cJSON_GetStringValue(cJSON_GetObjectItem(json, "device_name"));
+
+    ESP_LOGI(TAG, "ble config received: device_name=%s", ble_name);
+
+    httpd_callbacks.ble_config_cb( ble_name ? ble_name : "");
+
+    cJSON_Delete(json);
+
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, "{\"success\":true}");
+    return ESP_OK;
+}
 
 void httpd_manager_start(bool captive_portal)
 {
@@ -241,13 +273,23 @@ void httpd_manager_start(bool captive_portal)
             .user_ctx = NULL
         };
         httpd_register_uri_handler(server, &mqtt_submit_uri);  
+
+        httpd_uri_t ble_submit_uri = {
+            .uri = "/ble_submit",
+            .method = HTTP_POST,
+            .handler = ble_submit_post,
+            .user_ctx = NULL
+        };
+        httpd_register_uri_handler(server, &ble_submit_uri);  
     }
 }
 
 void httpd_manager_set_callbacks(
     wifi_credentials_cb_t wifi_credentials,
-    mqtt_config_cb_t mqtt_config)
+    mqtt_config_cb_t mqtt_config,
+    ble_config_cb_t ble_config)
 {
     if (wifi_credentials) httpd_callbacks.wifi_credentials_cb = wifi_credentials;
     if (mqtt_config) httpd_callbacks.mqtt_config_cb = mqtt_config;
+    if (ble_config) httpd_callbacks.ble_config_cb = ble_config;
 }

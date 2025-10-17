@@ -9,7 +9,6 @@
   <header>
     <h2>MQTT Configuration</h2>
   </header>
-
   <main>
     <form id="mqtt-form">
       <div class="form-group">
@@ -32,9 +31,20 @@
         <input type="password" id="pass" name="pass" maxlength="31">
       </div>
 
-      <input type="submit" value="Save Configuration">
+      <input type="submit" value="Save & apply MQTT configuration">
     </form>
-    <p id="status"></p>
+    <p id="mqtt-status"></p>
+  <header>
+    <h2>BLE Configuration</h2>
+  </header>
+    <form id="ble-form">
+      <div class="form-group">
+        <label for="device_name">Device name:</label>
+        <input type="text" id="device_name" name="device_name" maxlength="31">
+      </div>
+      <input type="submit" value="Save & apply BLE configuration">
+    </form>
+    <p id="ble-status"></p>
   </main>
    <script src="index.js"></script>
 </body>

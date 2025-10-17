@@ -1,6 +1,8 @@
 document.addEventListener("DOMContentLoaded", async () => {
-    const form = document.getElementById("mqtt-form");
-    const status = document.getElementById("status");
+    const mqtt_form = document.getElementById("mqtt-form");
+    const mqtt_status = document.getElementById("mqtt-status");
+    const ble_form = document.getElementById("ble-form");
+    const ble_status = document.getElementById("ble-status");
     try {
         const res = await fetch("/index.json");
         if (res.ok) {
@@ -13,13 +15,13 @@ document.addEventListener("DOMContentLoaded", async () => {
     } catch (err) {
         console.log("No existing config found");
     }
-    form.addEventListener("submit", async (e) => {
+    mqtt_form.addEventListener("submit", async (e) => {
         e.preventDefault();
         const payload = {
-            broker: form.broker.value,
-            prefix: form.prefix.value,
-            user: form.user.value,
-            pass: form.pass.value,
+            broker: mqtt_form.broker.value,
+            prefix: mqtt_form.prefix.value,
+            user: mqtt_form.user.value,
+            pass: mqtt_form.pass.value,
         };
         const res = await fetch("/mqtt_submit", {
             method: "POST",
@@ -33,6 +35,25 @@ document.addEventListener("DOMContentLoaded", async () => {
         } else {
             status.textContent = "Failed to save configuration";
             status.style.color = "red";
+        }
+    });
+    ble_form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const payload = {
+            device_name: ble_form.device_name.value,
+        };
+        const res = await fetch("/ble_submit", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+        });
+        if (res.ok) {
+            const json = await res.json();
+            ble_status.textContent = json.message || "New configuration applied";
+            ble_status.style.color = "green";
+        } else {
+            ble_status.textContent = "Failed to save configuration";
+            ble_status.style.color = "red";
         }
     });
 });

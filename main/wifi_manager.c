@@ -1,8 +1,8 @@
 #include "wifi_manager.h"
 #include "httpd_manager.h"
-#include "common.h"
 
 #include "nvs.h"
+#include "esp_log.h"
 
 #define WIFI_NAMESPACE "wifi"
 

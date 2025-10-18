@@ -1,6 +1,7 @@
 #include "httpd_manager.h"
 #include "dns_server.h"
 
+#include <string.h> 
 #include "esp_log.h"
 #include "esp_http_server.h"
 #include "esp_netif.h"
@@ -116,8 +117,20 @@ static esp_err_t captive_submit_post(httpd_req_t *req)
  * @brief helper to check session
 */
 static bool check_session(httpd_req_t *req) {
-    session_data_t *sess = (session_data_t *)req->sess_ctx;
-    return sess && sess->is_authenticated;
+
+    if (!server || !req) return false;
+
+    int sockfd = httpd_req_to_sockfd(req);  
+    if (sockfd < 0) return false;
+
+    session_data_t *sess = (session_data_t *)httpd_sess_get_ctx(server, sockfd);
+    if (sess && sess->is_authenticated) return true;
+
+    char cookie_hdr[64];
+    if (httpd_req_get_hdr_value_str(req, "Cookie", cookie_hdr, sizeof(cookie_hdr)) == ESP_OK) {
+        if (strstr(cookie_hdr, "session=1")) return true;
+    }
+    return false;
 }
 /**
  * @brief load login credentails from nvs 
@@ -227,17 +240,29 @@ static esp_err_t login_post_handler(httpd_req_t *req) {
     }
 
    if (strcmp(entered_user, stored_user) == 0 && strcmp(entered_pass, stored_pass) == 0) {
-        // Allocate session context if not already
-        if (!req->sess_ctx) {
-            req->sess_ctx = malloc(sizeof(session_data_t));
-            if (!req->sess_ctx) return ESP_ERR_NO_MEM;
+        // create persistent session structure
+        session_data_t *sess = calloc(1, sizeof(session_data_t));
+        if (!sess) {
+            cJSON_Delete(json);
+            return ESP_ERR_NO_MEM;
         }
-        session_data_t *sess = (session_data_t *)req->sess_ctx;
         sess->is_authenticated = true;
         strncpy(sess->user, entered_user, sizeof(sess->user) - 1);
 
-        // Set HttpOnly cookie
-        httpd_resp_set_hdr(req, "Set-Cookie", "session=1; HttpOnly");
+        // Persist session in httpd session store keyed by socket
+        int sockfd = httpd_req_to_sockfd(req);
+        if (sockfd >= 0) {
+            // If there was an old ctx, free it first to avoid leak
+            session_data_t *old = (session_data_t *)httpd_sess_get_ctx(server, sockfd);
+            if (old) free(old);
+            httpd_sess_set_ctx(server, sockfd, sess, free);
+        } else {
+            // fallback: keep it in req->sess_ctx for this request only
+            req->sess_ctx = sess;
+        }
+        // Set cookie so the browser will send it on subsequent requests.
+        // include Path=/ so it applies to all URIs.
+        httpd_resp_set_hdr(req, "Set-Cookie", "session=1; Path=/; HttpOnly");
 
         httpd_resp_set_type(req, "application/json");
         httpd_resp_sendstr(req, "{\"success\":true}");
@@ -246,6 +271,7 @@ static esp_err_t login_post_handler(httpd_req_t *req) {
         httpd_resp_send_err(req, HTTPD_401_UNAUTHORIZED, "Invalid credentials");
         ESP_LOGW(TAG, "Login failed for user %s", entered_user);
     }
+
     cJSON_Delete(json);
     return ESP_OK;
 }
@@ -300,6 +326,45 @@ static esp_err_t littlefs_handler(httpd_req_t *req)
     }
     close(fd);
     httpd_resp_send_chunk(req, NULL, 0); // signal end of response
+    return ESP_OK;
+}
+/**
+ * @brief set new login username/password handler
+ */ 
+static esp_err_t set_login_post_handler(httpd_req_t *req)
+{
+    char buf[64];
+    int ret = httpd_req_recv(req, buf, sizeof(buf) - 1);
+    if (ret <= 0) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Empty request");
+        return ESP_FAIL;
+    }
+    buf[ret] = '\0';
+
+    cJSON *json = cJSON_Parse(buf);
+    if (!json) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
+        return ESP_FAIL;
+    }
+
+    const char *user = cJSON_GetStringValue(cJSON_GetObjectItem(json, "new_user"));
+    const char *pass = cJSON_GetStringValue(cJSON_GetObjectItem(json, "new_pass"));
+
+    esp_err_t err = httpd_save_credentials(user, pass);
+    
+
+    if (err != ESP_OK){
+        ESP_LOGE(TAG, "Couldn't save new Login");
+        cJSON_Delete(json);
+        return ESP_FAIL;
+    }
+
+    ESP_LOGI(TAG, "Successfuly saved new Login");
+   
+
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, "{\"success\":true}");
+    cJSON_Delete(json);
     return ESP_OK;
 }
 /**
@@ -492,6 +557,15 @@ void httpd_manager_start(bool captive_portal)
         .user_ctx = NULL
         };
         httpd_register_uri_handler(server, &login_uri);
+
+        httpd_uri_t set_login_uri = {
+        .uri = "/set_login_submit",
+        .method = HTTP_POST,
+        .handler = set_login_post_handler,
+        .user_ctx = NULL
+        };
+        esp_err_t r = httpd_register_uri_handler(server, &set_login_uri);
+        ESP_LOGI(TAG, "Register /set_login_submit -> %s", esp_err_to_name(r));
  
     }
 }

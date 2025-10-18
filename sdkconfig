@@ -1452,6 +1452,31 @@ CONFIG_ESP_TLS_DYN_BUF_STRATEGY_SUPPORTED=y
 # end of ESP-TLS
 
 #
+# ADC and ADC Calibration
+#
+# default:
+# CONFIG_ADC_ONESHOT_CTRL_FUNC_IN_IRAM is not set
+# default:
+# CONFIG_ADC_CONTINUOUS_ISR_IRAM_SAFE is not set
+
+#
+# ADC Calibration Configurations
+#
+# default:
+CONFIG_ADC_CALI_EFUSE_TP_ENABLE=y
+# default:
+CONFIG_ADC_CALI_EFUSE_VREF_ENABLE=y
+# default:
+CONFIG_ADC_CALI_LUT_ENABLE=y
+# end of ADC Calibration Configurations
+
+# default:
+CONFIG_ADC_DISABLE_DAC_OUTPUT=y
+# default:
+# CONFIG_ADC_ENABLE_DEBUG_LOG is not set
+# end of ADC and ADC Calibration
+
+#
 # Wireless Coexistence
 #
 # default:
@@ -1477,6 +1502,17 @@ CONFIG_ESP_ERR_TO_NAME_LOOKUP=y
 # default:
 # CONFIG_GPIO_CTRL_FUNC_IN_IRAM is not set
 # end of ESP-Driver:GPIO Configurations
+
+#
+# ESP-Driver:I2S Configurations
+#
+# default:
+# CONFIG_I2S_ISR_IRAM_SAFE is not set
+# default:
+# CONFIG_I2S_CTRL_FUNC_IN_IRAM is not set
+# default:
+# CONFIG_I2S_ENABLE_DEBUG_LOG is not set
+# end of ESP-Driver:I2S Configurations
 
 #
 # ESP-Driver:SPI Configurations
@@ -3239,6 +3275,44 @@ CONFIG_VFS_INITIALIZE_DEV_NULL=y
 # end of Virtual file system
 
 #
+# IoT Button
+#
+# default:
+CONFIG_BUTTON_PERIOD_TIME_MS=5
+# default:
+CONFIG_BUTTON_DEBOUNCE_TICKS=2
+# default:
+CONFIG_BUTTON_SHORT_PRESS_TIME_MS=180
+# default:
+CONFIG_BUTTON_LONG_PRESS_TIME_MS=1500
+# default:
+CONFIG_BUTTON_LONG_PRESS_HOLD_SERIAL_TIME_MS=20
+# default:
+CONFIG_ADC_BUTTON_MAX_CHANNEL=3
+# default:
+CONFIG_ADC_BUTTON_MAX_BUTTON_PER_CHANNEL=8
+# default:
+CONFIG_ADC_BUTTON_SAMPLE_TIMES=1
+# end of IoT Button
+
+#
+# CMake Utilities
+#
+# default:
+# CONFIG_CU_RELINKER_ENABLE is not set
+# default:
+# CONFIG_CU_DIAGNOSTICS_COLOR_NEVER is not set
+# default:
+CONFIG_CU_DIAGNOSTICS_COLOR_ALWAYS=y
+# default:
+# CONFIG_CU_DIAGNOSTICS_COLOR_AUTO is not set
+# default:
+# CONFIG_CU_GCC_LTO_ENABLE is not set
+# default:
+# CONFIG_CU_GCC_STRING_1BYTE_ALIGN is not set
+# end of CMake Utilities
+
+#
 # LittleFS
 #
 # default:
@@ -3530,6 +3604,10 @@ CONFIG_BTDM_CONTROLLER_FULL_SCAN_SUPPORTED=y
 CONFIG_BLE_ADV_REPORT_FLOW_CONTROL_SUPPORTED=y
 CONFIG_BLE_ADV_REPORT_FLOW_CONTROL_NUM=100
 CONFIG_BLE_ADV_REPORT_DISCARD_THRSHOLD=20
+CONFIG_ADC_CAL_EFUSE_TP_ENABLE=y
+CONFIG_ADC_CAL_EFUSE_VREF_ENABLE=y
+CONFIG_ADC_CAL_LUT_ENABLE=y
+CONFIG_ADC_DISABLE_DAC=y
 CONFIG_SW_COEXIST_ENABLE=y
 CONFIG_ESP32_WIFI_SW_COEXIST_ENABLE=y
 CONFIG_ESP_WIFI_SW_COEXIST_ENABLE=y

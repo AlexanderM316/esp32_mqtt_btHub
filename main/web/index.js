@@ -3,6 +3,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     const mqtt_status = document.getElementById("mqtt-status");
     const ble_form = document.getElementById("ble-form");
     const ble_status = document.getElementById("ble-status");
+    const login_form = document.getElementById("set-login-form");
+    const login_status = document.getElementById("set-login-status");
     try {
         const res = await fetch("/index.json");
         if (res.ok) {
@@ -30,11 +32,11 @@ document.addEventListener("DOMContentLoaded", async () => {
         });
         if (res.ok) {
             const json = await res.json();
-            status.textContent = json.message || "New configuration applied";
-            status.style.color = "green";
+            mqtt_status.textContent = json.message || "New configuration applied";
+            mqtt_status.style.color = "green";
         } else {
-            status.textContent = "Failed to save configuration";
-            status.style.color = "red";
+            mqtt_status.textContent = "Failed to save configuration";
+            mqtt_status.style.color = "red";
         }
     });
     ble_form.addEventListener("submit", async (e) => {
@@ -54,6 +56,26 @@ document.addEventListener("DOMContentLoaded", async () => {
         } else {
             ble_status.textContent = "Failed to save configuration";
             ble_status.style.color = "red";
+        }
+    });
+    login_form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const payload = {
+            new_user: login_form.new_name.value,
+            new_pass: login_form.new_pass.value,
+        };
+        const res = await fetch("/set_login_submit", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+        });
+        if (res.ok) {
+            const json = await res.json();
+            login_status.textContent = json.message || "New configuration applied";
+            login_status.style.color = "green";
+        } else {
+            login_status.textContent = "Failed to save configuration";
+            login_status.style.color = "red";
         }
     });
 });

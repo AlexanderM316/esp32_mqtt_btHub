@@ -15,22 +15,18 @@
         <label for="broker">Broker URL:</label>
         <input type="text" id="broker" name="broker" minlength="3" maxlength="63" required>
       </div>
-
       <div class="form-group">
         <label for="prefix">Discovery Prefix:</label>
         <input type="text" id="prefix" name="prefix" maxlength="31">
       </div>
-
       <div class="form-group">
         <label for="user">Username:</label>
         <input type="text" id="user" name="user" maxlength="31">
       </div>
-
       <div class="form-group">
         <label for="pass">Password:</label>
         <input type="password" id="pass" name="pass" maxlength="31">
       </div>
-
       <input type="submit" value="Save & apply MQTT configuration">
     </form>
     <p id="mqtt-status"></p>
@@ -45,6 +41,21 @@
       <input type="submit" value="Save & apply BLE configuration">
     </form>
     <p id="ble-status"></p>
+  <header>
+    <h2>Login Configuration</h2>
+  </header>
+    <form id="set-login-form">
+      <div class="form-group">
+        <label for="new_name">New username:</label>
+        <input type="text" id="new_name" name="new_name" minlength="4" maxlength="15" required>
+      </div>
+      <div class="form-group">
+        <label for="new_pass">New password:</label>
+        <input type="password" id="new_pass" name="new_pass" minlength="4" maxlength="15" required>
+      </div>
+      <input type="submit" value="Save new login">
+    </form>
+    <p id="set-login-status"></p>
   </main>
    <script src="index.js"></script>
 </body>

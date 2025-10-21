@@ -285,7 +285,7 @@ static esp_err_t metrics_get_handler(httpd_req_t *req)
 
     char json[256];
     snprintf(json, sizeof(json),
-        "{\"uptime_ms\":%llu,"
+        "{\"uptime_ms\":%lu,"
         "\"free_heap\":%u,"
         "\"total_heap\":%u,"
         "\"used_percent\":%.2f,"

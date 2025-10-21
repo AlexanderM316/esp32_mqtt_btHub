@@ -1,3 +1,4 @@
+let metricsInterval = null;
 document.addEventListener("DOMContentLoaded", async () => {
     const tabButtons = document.querySelectorAll('.tab-button');
     const tabContents = document.querySelectorAll('.tab-content');
@@ -8,6 +9,8 @@ document.addEventListener("DOMContentLoaded", async () => {
             tabContents.forEach(content => content.classList.remove('active'));
             button.classList.add('active');
             document.getElementById(tabId).classList.add('active');
+            if (tabId === 'system') startMetricsPolling();
+            else stopMetricsPolling();
         });
     });
     const mqtt_form = document.getElementById("mqtt-form");
@@ -90,6 +93,17 @@ document.addEventListener("DOMContentLoaded", async () => {
         }
     });
 });
+function startMetricsPolling() {
+  if (metricsInterval) return;
+  updateMetrics(); 
+  metricsInterval = setInterval(updateMetrics, 2000);
+}
+function stopMetricsPolling() {
+  if (metricsInterval) {
+    clearInterval(metricsInterval);
+    metricsInterval = null;
+  }
+}
 async function updateMetrics() {
   try {
     const res = await fetch('/metrics');
@@ -97,7 +111,7 @@ async function updateMetrics() {
     const usedPercent = data.used_percent.toFixed(1);
     const free = data.free_heap;
     const total = data.total_heap;
-    document.getElementById('uptime').textContent = (data.uptime_ms / 1000).toFixed(1) + 's';
+    document.getElementById('uptime').textContent = Math.floor(data.uptime_ms)+ 's';
     document.getElementById('min_heap').textContent = data.min_free_heap;
     const bar = document.getElementById('heap-bar');
     const text = document.getElementById('heap-text');
@@ -110,5 +124,3 @@ async function updateMetrics() {
     console.error('Failed to fetch metrics:', err);
   }
 }
-setInterval(updateMetrics, 2000);
-updateMetrics();

@@ -58,6 +58,7 @@ esp32_mqtt_btHub/
 │   ├── dns_server.c
 │   ├── httpd_manager.c
 │   ├── idf_component.yml
+│   ├── system_metrics.c
 │   ├── mqtt_manager.c       ← логика работы с MQTT и обмен сообщениями
 │   ├── wifi_manager.c       ← Подключение к Wi-Fi, обработка событий сети
 │   ├── esp32_mqtt_btHub.c   ← main
@@ -65,6 +66,7 @@ esp32_mqtt_btHub/
 │   │   ├── device_manager.h
 │   │   ├── dns_server.h
 │   │   ├── httpd_manager.h
+│   │   ├── system_metrics.h
 │   │   ├── mqtt_manager.h
 │   │   └── wifi_manager.h   
 │   └── web/

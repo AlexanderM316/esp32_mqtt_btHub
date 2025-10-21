@@ -1,6 +1,7 @@
 #include "wifi_manager.h"
 #include "mqtt_manager.h"
 #include "httpd_manager.h"
+#include "system_metrics.h"
 
 #include <stdint.h>
 #include <string.h>
@@ -16,9 +17,8 @@
 
 #include "esp_bt.h"
 #include "esp_bt_main.h"
-#include "esp_gatt_common_api.h"
 
-static const char *TAG = "esp32_mqtt_btHub";
+static const char *TAG = "main";
 
 void app_main(void)
 {
@@ -77,21 +77,8 @@ void app_main(void)
         ESP_LOGE(TAG, "GATTC register error: %x", ret);
         return;
     }
-
-    // Register all devices (each gets its own profile)
-    for (int i = 0; i < MAX_DEVICES; i++) {
-        ret = esp_ble_gattc_app_register(i);
-        if (ret){
-            ESP_LOGE(TAG, "Device %d register error: %x", i, ret);
-        } else {
-            ESP_LOGI(TAG, "Registered device/profile %d", i);
-        }
-    }
     
-    ret = esp_ble_gatt_set_local_mtu(200);
-    if (ret){
-        ESP_LOGE(TAG, "MTU set failed: %x", ret);
-    }
+    system_metrics_init();
     // Register the MQTT callback
     device_manager_set_callbacks(mqtt_device_found, NULL, NULL, NULL,mqtt_device_state);
     // Register the httpd server callbacks

@@ -15,6 +15,7 @@
         <button class="tab-button active" data-tab="mqtt">MQTT</button>
         <button class="tab-button" data-tab="ble">BLE</button>
         <button class="tab-button" data-tab="login">Login</button>
+        <button class="tab-button" data-tab="system">System</button>
     </div>
     <div id="mqtt" class="tab-content active">
      <h2>MQTT Configuration</h2>
@@ -65,6 +66,16 @@
      </form>
      <p id="set-login-status"></p>
     </div>
+   <div id="system" class="tab-content">
+    <h2>System Metrics</h2>
+   <div class="progress-container">
+      <div id="heap-bar" class="progress-bar">
+        <span id="heap-text">0% used (0 / 0 bytes)</span>
+      </div>
+    </div>
+    <p>Min Free Heap: <span id="min_heap"></span> bytes</p>
+    <p>Uptime: <span id="uptime"></span></p>
+</div>
   </main>
    <script src="index.js"></script>
 </body>

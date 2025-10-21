@@ -90,3 +90,25 @@ document.addEventListener("DOMContentLoaded", async () => {
         }
     });
 });
+async function updateMetrics() {
+  try {
+    const res = await fetch('/metrics');
+    const data = await res.json();
+    const usedPercent = data.used_percent.toFixed(1);
+    const free = data.free_heap;
+    const total = data.total_heap;
+    document.getElementById('uptime').textContent = (data.uptime_ms / 1000).toFixed(1) + 's';
+    document.getElementById('min_heap').textContent = data.min_free_heap;
+    const bar = document.getElementById('heap-bar');
+    const text = document.getElementById('heap-text');
+    bar.style.width = `${usedPercent}%`;
+    bar.classList.remove('warn', 'crit');
+    if (usedPercent > 80) bar.classList.add('crit');
+    else if (usedPercent > 60) bar.classList.add('warn');
+    text.textContent = `${usedPercent}% used (${free.toLocaleString()} / ${total.toLocaleString()} bytes)`;
+  } catch (err) {
+    console.error('Failed to fetch metrics:', err);
+  }
+}
+setInterval(updateMetrics, 2000);
+updateMetrics();

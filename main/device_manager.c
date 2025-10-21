@@ -5,6 +5,8 @@
 #include "freertos/task.h"
 #include "nvs.h"
 
+#include "esp_gatt_common_api.h"
+
 #define GATT_NAMESPACE "gatt"
 
 #define CMD_MAX_LEN 12 //  max length of w_cmd
@@ -431,6 +433,22 @@ void device_manager_init(void)
         ESP_LOGE(TAG, "Failed to load config from NVS (%s)", esp_err_to_name(err));
         return;
     }
+
+    // Register all devices (each gets its own profile)
+    for (int i = 0; i < MAX_DEVICES; i++) {
+        err = esp_ble_gattc_app_register(i);
+        if (err){
+            ESP_LOGE(TAG, "Device %d register error: %x", i, err);
+        } else {
+            ESP_LOGI(TAG, "Registered device/profile %d", i);
+        }
+    }
+    
+    err = esp_ble_gatt_set_local_mtu(200);
+    if (err){
+        ESP_LOGE(TAG, "MTU set failed: %x", err);
+    }
+
     ESP_LOGI(TAG, "Device Manager initialized for %d devices", MAX_DEVICES);
 }
 

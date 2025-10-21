@@ -1,5 +1,6 @@
 #include "httpd_manager.h"
 #include "dns_server.h"
+#include "system_metrics.h"
 
 #include <string.h> 
 #include "esp_log.h"
@@ -276,6 +277,27 @@ static esp_err_t login_post_handler(httpd_req_t *req) {
     return ESP_OK;
 }
 /**
+ * @brief get metrics data
+ */ 
+static esp_err_t metrics_get_handler(httpd_req_t *req)
+{
+    system_metrics_t *m = system_metrics_get();
+
+    char json[256];
+    snprintf(json, sizeof(json),
+        "{\"uptime_ms\":%llu,"
+        "\"free_heap\":%u,"
+        "\"total_heap\":%u,"
+        "\"used_percent\":%.2f,"
+        "\"min_free_heap\":%u}",
+        m->uptime_ms, m->free_heap, m->total_heap, m->used_percent,
+        m->min_free_heap);
+
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, json, HTTPD_RESP_USE_STRLEN);
+    return ESP_OK;
+}
+/**
  * @brief List of assets that don't require login
  * @param uri 
  * @return true/false
@@ -526,6 +548,14 @@ void httpd_manager_start(bool captive_portal)
         }
         ESP_LOGI(TAG, "LittleFS mounted successfully");
 
+        httpd_uri_t metrics_uri = {
+            .uri       = "/metrics",
+            .method    = HTTP_GET,
+            .handler   = metrics_get_handler,
+            .user_ctx  = NULL
+        };
+        httpd_register_uri_handler(server, &metrics_uri);
+
         httpd_uri_t root_uri = {
             .uri = "/*",
             .method = HTTP_GET,
@@ -551,22 +581,20 @@ void httpd_manager_start(bool captive_portal)
         httpd_register_uri_handler(server, &ble_submit_uri); 
 
         httpd_uri_t login_uri = {
-        .uri = "/login",
-        .method = HTTP_POST,
-        .handler = login_post_handler,
-        .user_ctx = NULL
+            .uri = "/login",
+            .method = HTTP_POST,
+            .handler = login_post_handler,
+            .user_ctx = NULL
         };
         httpd_register_uri_handler(server, &login_uri);
 
         httpd_uri_t set_login_uri = {
-        .uri = "/set_login_submit",
-        .method = HTTP_POST,
-        .handler = set_login_post_handler,
-        .user_ctx = NULL
+            .uri = "/set_login_submit",
+            .method = HTTP_POST,
+            .handler = set_login_post_handler,
+            .user_ctx = NULL
         };
-        esp_err_t r = httpd_register_uri_handler(server, &set_login_uri);
-        ESP_LOGI(TAG, "Register /set_login_submit -> %s", esp_err_to_name(r));
- 
+       httpd_register_uri_handler(server, &set_login_uri);
     }
 }
 

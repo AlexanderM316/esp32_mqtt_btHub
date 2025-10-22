@@ -10,9 +10,9 @@ jobs:
     runs-on: ubuntu-latest
 
     strategy:
-      fail-fast: false 
+      fail-fast: false
       matrix:
-        idf-version: [v5.5.1 , latest]
+        idf-version: [latest]
         target: [esp32]
 
     steps:
@@ -22,37 +22,69 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version || '3.13' }}
+          python-version: '3.13'
 
       - name: Cache ESP-IDF
         uses: actions/cache@v4
         with:
           path: ~/.espressif
-          key: esp-idf-${{ matrix.idf-version }}-${{ matrix.target }}
+          key: esp-idf-${{ matrix.idf-version }}-${{ matrix.target }}-${{ runner.os }}-py3.13
           restore-keys: |
-            esp-idf-${{ matrix.idf-version }}
+            esp-idf-${{ matrix.idf-version }}-
             esp-idf-
+
+      - name: Configure target early
+        run: echo "IDF_TARGET=${{ matrix.target }}" >> $GITHUB_ENV
 
       - name: Set up ESP-IDF (official action)
         uses: espressif/esp-idf-ci-action@v1
         with:
           esp_idf_version: ${{ matrix.idf-version }}
+        env:
+          IDF_TARGET: ${{ matrix.target }}
 
-      - name: Configure target
-        run: echo "IDF_TARGET=${{ matrix.target }}" >> $GITHUB_ENV
-
-      - name: Display environment info
+      - name: Verify ESP-IDF installation and export environment
+        shell: bash
         run: |
-          echo "Building for: IDF ${{ matrix.idf-version }} / Target $IDF_TARGET"
-          idf.py --version || true
+          echo "Listing $HOME/.espressif"
+          ls -la "$HOME/.espressif" || true
+
+          # Prefer known install location produced by the action
+          if [ -f "$HOME/.espressif/esp-idf/export.sh" ]; then
+            . "$HOME/.espressif/esp-idf/export.sh"
+          elif [ -n "$IDF_PATH" ] && [ -f "$IDF_PATH/export.sh" ]; then
+            . "$IDF_PATH/export.sh"
+          else
+            echo "ERROR: could not find esp-idf export.sh"
+            env | sort
+            exit 1
+          fi
+
+          which idf.py || true
+          idf.py --version
 
       - name: Build firmware (Release)
-        run: idf.py build
+        shell: bash
+        run: |
+          if [ -f "$HOME/.espressif/esp-idf/export.sh" ]; then
+            . "$HOME/.espressif/esp-idf/export.sh"
+          elif [ -n "$IDF_PATH" ] && [ -f "$IDF_PATH/export.sh" ]; then
+            . "$IDF_PATH/export.sh"
+          fi
+          echo "Building for: IDF ${{ matrix.idf-version }} / Target $IDF_TARGET"
+          idf.py build
         env:
           IDF_TARGET: ${{ matrix.target }}
 
       - name: Run unit tests (if defined)
+        shell: bash
         run: |
+          if [ -f "$HOME/.espressif/esp-idf/export.sh" ]; then
+            . "$HOME/.espressif/esp-idf/export.sh"
+          elif [ -n "$IDF_PATH" ] && [ -f "$IDF_PATH/export.sh" ]; then
+            . "$IDF_PATH/export.sh"
+          fi
+
           if idf.py test --list; then
             echo "Running available unit tests..."
             idf.py test

@@ -12,7 +12,7 @@ jobs:
     strategy:
       fail-fast: false 
       matrix:
-        idf-version: [v5.2.6, v5.3.4, v5.4.2]
+        idf-version: [v5.5.1 , latest]
         target: [esp32]
 
     steps:
@@ -22,7 +22,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version || '3.12' }}
+          python-version: ${{ matrix.python-version || '3.13' }}
 
       - name: Cache ESP-IDF
         uses: actions/cache@v4

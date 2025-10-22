@@ -1,0 +1,75 @@
+name: ESP-IDF Build & Test
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false 
+      matrix:
+        idf-version: [v4.1.0, v4.4.6, v5.1.6]
+        target: [esp32]
+        include:
+          - idf-version: v4.4.6
+            python-version: '3.9'
+          - idf-version: v5.3.4
+            python-version: '3.11'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version || '3.11' }}
+
+      - name: Cache ESP-IDF
+        uses: actions/cache@v4
+        with:
+          path: ~/.espressif
+          key: esp-idf-${{ matrix.idf-version }}-${{ matrix.target }}
+          restore-keys: |
+            esp-idf-${{ matrix.idf-version }}
+            esp-idf-
+
+      - name: Set up ESP-IDF (official action)
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: ${{ matrix.idf-version }}
+
+      - name: Configure target
+        run: echo "IDF_TARGET=${{ matrix.target }}" >> $GITHUB_ENV
+
+      - name: Display environment info
+        run: |
+          echo "Building for: IDF ${{ matrix.idf-version }} / Target $IDF_TARGET"
+          idf.py --version || true
+
+      - name: Build firmware (Release)
+        run: idf.py build
+        env:
+          IDF_TARGET: ${{ matrix.target }}
+
+      - name: Run unit tests (if defined)
+        run: |
+          if idf.py test --list; then
+            echo "Running available unit tests..."
+            idf.py test
+          else
+            echo "No test targets defined — skipping."
+          fi
+        env:
+          IDF_TARGET: ${{ matrix.target }}
+
+      - name: Upload build artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-${{ matrix.idf-version }}-${{ matrix.target }}
+          path: build/*.bin

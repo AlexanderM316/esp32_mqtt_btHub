@@ -12,13 +12,8 @@ jobs:
     strategy:
       fail-fast: false 
       matrix:
-        idf-version: [v4.1.0, v4.4.6, v5.1.6]
+        idf-version: [v5.2.6, v5.3.4, v5.4.2]
         target: [esp32]
-        include:
-          - idf-version: v4.4.6
-            python-version: '3.9'
-          - idf-version: v5.3.4
-            python-version: '3.11'
 
     steps:
       - name: Checkout repository

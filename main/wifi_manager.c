@@ -3,6 +3,7 @@
 
 #include "nvs.h"
 #include "esp_log.h"
+#include "mdns.h"
 
 #define WIFI_NAMESPACE "wifi"
 
@@ -74,6 +75,24 @@ static void wifi_start_ap(void)
     ESP_LOGI(TAG, "AP Mode active: SSID=%s, Password=%s",
              ap_config.ap.ssid,
              ap_config.ap.password);
+}
+/**
+ * @brief start mdns to resolve esp hostname
+*/
+static void start_mdns(void)
+{
+    esp_err_t err = mdns_init();
+    if (err) {
+        ESP_LOGE("mDNS", "mdns_init failed: %s", esp_err_to_name(err));
+        return;
+    }
+
+    mdns_hostname_set("esp32");  
+    mdns_instance_name_set("ESP32 MQTT Bluetooth Hub");
+
+    mdns_service_add(NULL, "_http", "_tcp", 80, NULL, 0);
+
+    ESP_LOGI("mDNS", "mDNS responder started: http://esp32.local");
 }
 
 void wifi_init(void)
@@ -171,6 +190,7 @@ void wifi_event_handler(void* arg, esp_event_base_t event_base,
         ESP_LOGI(TAG, "Got IP:" IPSTR, IP2STR(&event->ip_info.ip));
         s_current_retry = 0; // reset counter if successful
         xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
+        start_mdns();
     }
 }
 

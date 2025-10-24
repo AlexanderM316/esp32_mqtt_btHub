@@ -116,9 +116,24 @@ input[type="submit"]:hover {
 .progress-bar.crit {
   background: linear-gradient(90deg, #F44336, #E57373);
 }
-#heap-text {
+#heap-used {
   position: relative;
   z-index: 2;
   padding: 0 6px;
 }
-
+#heap-free {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #333;
+  font-weight: 500;
+  font-size: 13px;
+  text-shadow: 0 1px 1px rgba(255,255,255,0.6);
+  white-space: nowrap;
+}
+.heap-header {
+  font-weight: 600;
+  margin-bottom: 5px;
+  color: #444;
+}

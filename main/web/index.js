@@ -98,6 +98,7 @@ function startMetricsPolling() {
   updateMetrics(); 
   metricsInterval = setInterval(updateMetrics, 2000);
 }
+
 function stopMetricsPolling() {
   if (metricsInterval) {
     clearInterval(metricsInterval);
@@ -111,15 +112,29 @@ async function updateMetrics() {
     const usedPercent = data.used_percent.toFixed(1);
     const free = data.free_heap;
     const total = data.total_heap;
-    document.getElementById('uptime').textContent = Math.floor(data.uptime_ms)+ 's';
-    document.getElementById('min_heap').textContent = data.min_free_heap;
+    const usedBytes = total - free;
+    document.getElementById('uptime').textContent = Math.floor(data.uptime_ms) + 's';
+    document.getElementById('min_heap').textContent = data.min_free_heap.toLocaleString();
+    document.getElementById('total_heap').textContent = total.toLocaleString();
     const bar = document.getElementById('heap-bar');
-    const text = document.getElementById('heap-text');
+    const usedText = document.getElementById('heap-used');
+    const freeText = document.getElementById('heap-free');
     bar.style.width = `${usedPercent}%`;
     bar.classList.remove('warn', 'crit');
     if (usedPercent > 80) bar.classList.add('crit');
     else if (usedPercent > 60) bar.classList.add('warn');
-    text.textContent = `${usedPercent}% used (${free.toLocaleString()} / ${total.toLocaleString()} bytes)`;
+    usedText.textContent = `${usedPercent}% (${usedBytes.toLocaleString()} bytes used)`;
+    freeText.textContent = `${free.toLocaleString()} bytes free`;
+    if (usedPercent > 80) {
+      freeText.style.top = '-18px';
+      freeText.style.transform = 'none';
+      freeText.style.right = '0';
+      freeText.style.color = '#000';
+    } else {
+      freeText.style.top = '50%';
+      freeText.style.transform = 'translateY(-50%)';
+      freeText.style.color = '#333';
+    }
   } catch (err) {
     console.error('Failed to fetch metrics:', err);
   }

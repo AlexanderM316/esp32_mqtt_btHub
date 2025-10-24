@@ -66,17 +66,21 @@
      </form>
      <p id="set-login-status"></p>
     </div>
-  <div id="system" class="tab-content">
-    <h2>System Metrics</h2>
-    <div class="progress-container">
-      <div id="heap-bar" class="progress-bar">
-        <span id="heap-text">0% used (0 / 0 bytes)</span>
+    <div id="system" class="tab-content">
+      <h2>System Metrics</h2> 
+      <div class="heap-header">
+       Total Heap: <span id="total_heap">0</span> bytes
       </div>
+      <div class="progress-container">
+       <div id="heap-bar" class="progress-bar">
+         <span id="heap-used">0% (0 bytes used)</span>
+       </div>
+       <span id="heap-free">0 bytes free</span>
+      </div>
+      <p>Min Free: <span id="min_heap"></span> bytes</p>
+      <p>Uptime: <span id="uptime"></span></p>
     </div>
-    <p>Min Free: <span id="min_heap"></span> bytes</p>
-    <p>Uptime: <span id="uptime"></span></p>
-  </div>
   </main>
-   <script src="index.js"></script>
+  <script src="index.js"></script>
 </body>
 </html>

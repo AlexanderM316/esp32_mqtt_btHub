@@ -62,8 +62,6 @@ void app_main(void)
         return;
     }
 
-    device_manager_init();
-
     // Register callbacks
     ret = esp_ble_gap_register_callback(esp_gap_cb);
     if (ret){
@@ -76,6 +74,7 @@ void app_main(void)
         ESP_LOGE(TAG, "GATTC register error: %x", ret);
         return;
     }
+    device_manager_init();
     
     // Register the MQTT callback
     device_manager_set_callbacks(mqtt_device_found, NULL, NULL, NULL,mqtt_device_state);

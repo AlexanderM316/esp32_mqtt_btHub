@@ -23,10 +23,8 @@ document.addEventListener("DOMContentLoaded", async () => {
         const res = await fetch("/index.json");
         if (res.ok) {
             const data = await res.json();
-            document.getElementById("broker").value = data.broker || "";
-            document.getElementById("prefix").value = data.prefix || "";
-            document.getElementById("user").value = data.user || "";
-            document.getElementById("pass").value = data.pass || "";
+            document.getElementById("device_name").value = data.device_name || "";
+            document.getElementById("tx_power").value = data.tx_power ?? 0;
         }
     } catch (err) {
         console.log("No existing config found");
@@ -57,6 +55,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         e.preventDefault();
         const payload = {
             device_name: ble_form.device_name.value,
+            tx_power: parseInt(ble_form.tx_power.value, 10),
         };
         const res = await fetch("/ble_submit", {
             method: "POST",
@@ -105,6 +104,7 @@ function stopMetricsPolling() {
     metricsInterval = null;
   }
 }
+
 async function updateMetrics() {
   try {
     const res = await fetch('/metrics');

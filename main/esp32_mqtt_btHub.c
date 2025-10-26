@@ -79,7 +79,8 @@ void app_main(void)
     // Register the MQTT callback
     device_manager_set_callbacks(mqtt_device_found, NULL, NULL, NULL,mqtt_device_state);
     // Register the httpd server callbacks
-    httpd_manager_set_callbacks(wifi_update_credentials, mqtt_update_config, ble_update_config);
+    httpd_manager_set_callbacks(wifi_update_credentials, mqtt_update_config, ble_update_config,
+                                ble_get_config);
 
     // Start discovery
     ESP_LOGI(TAG, "Starting device discovery...");

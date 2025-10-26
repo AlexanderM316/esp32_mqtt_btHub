@@ -1,6 +1,8 @@
 #ifndef httpd_manager_H
 #define httpd_manager_H
 
+#include <stdint.h>
+
 /**
  * @brief Type for Wi-Fi credential save callback
  */
@@ -12,7 +14,11 @@ typedef void (*mqtt_config_cb_t)(const char *broker, const char *prefix, const c
 /**
  * @brief Type for ble(gatt) config save callback
  */
-typedef void (*ble_config_cb_t)(const char *device_name);
+typedef void (*ble_config_cb_t)(const char *device_name, const int8_t *tx_power);
+/**
+ * @brief Getter callback for BLE config
+ */
+typedef void (*ble_get_config_cb_t)(char *device_name, int8_t *tx_power);
 /**
  * @brief Start the HTTP server.
  * @param captive_portal  true for AP/captive portal mode
@@ -24,5 +30,6 @@ void httpd_manager_start(bool captive_portal);
 void httpd_manager_set_callbacks(
     wifi_credentials_cb_t  wifi_credentials,
     mqtt_config_cb_t mqtt_config,
-    ble_config_cb_t ble_config);
+    ble_config_cb_t ble_config,
+    ble_get_config_cb_t ble_get_config);
 #endif //httpd_manager_H

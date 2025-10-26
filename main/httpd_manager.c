@@ -34,6 +34,7 @@ static struct {
     wifi_credentials_cb_t wifi_credentials_cb;
     mqtt_config_cb_t mqtt_config_cb;
     ble_config_cb_t ble_config_cb;
+    ble_get_config_cb_t ble_get_config_cb;
 } httpd_callbacks = {0};
 
 // simple hardcoded form for the captive portal
@@ -53,7 +54,7 @@ static const char* get_mime_type(const char *path) {
     if (strstr(path, ".html")) return "text/html";
     if (strstr(path, ".css"))  return "text/css";
     if (strstr(path, ".js"))  return "application/javascript";
-    if (strstr(path, ".json"))  return "application/json";
+    //if (strstr(path, ".json"))  return "application/json";
     return "text/plain";
 }
 
@@ -311,6 +312,42 @@ static bool is_public_asset(const char *uri) {
     return false;
 }
 /**
+ * @brief Serve dynamic index.json (MQTT + BLE config)
+ */
+static esp_err_t index_json_handler(httpd_req_t *req)
+{
+    httpd_resp_set_type(req, "application/json");
+
+    char device_name[32] ={0};
+    int8_t tx_power = 0;
+    if (httpd_callbacks.ble_get_config_cb) {
+        httpd_callbacks.ble_get_config_cb( device_name, &tx_power);
+    }
+
+    char resp[512];
+    int len = snprintf(resp, sizeof(resp),
+        "{"
+            "\"broker\":\" \","
+            "\"prefix\":\" \","
+            "\"user\":\" \","
+            "\"device_name\":\"%s\","
+            "\"tx_power\":%d"
+        "}",
+        device_name,
+        (int8_t)tx_power
+    );
+
+    if (len < 0 || len >= sizeof(resp)) {
+        ESP_LOGE(TAG, "JSON error");
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "JSON build error");
+        return ESP_FAIL;
+    }
+
+    ESP_LOGI(TAG, "Served /index.json");
+    httpd_resp_send(req, resp, len);
+    return ESP_OK;
+}
+/**
  * @brief normal handler
  */ 
 static esp_err_t littlefs_handler(httpd_req_t *req)
@@ -444,10 +481,11 @@ static esp_err_t ble_submit_post(httpd_req_t *req)
     }
 
     const char *ble_name = cJSON_GetStringValue(cJSON_GetObjectItem(json, "device_name"));
+    int8_t tx_power = (int8_t)cJSON_GetNumberValue(cJSON_GetObjectItem(json, "tx_power"));
 
-    ESP_LOGI(TAG, "ble config received: device_name=%s", ble_name);
+    ESP_LOGI(TAG, "ble config received: device_name=%s, tx_power=%d", ble_name, (int)tx_power);
 
-    httpd_callbacks.ble_config_cb( ble_name ? ble_name : "");
+    httpd_callbacks.ble_config_cb( ble_name ? ble_name : "",&tx_power);
 
     cJSON_Delete(json);
 
@@ -556,6 +594,14 @@ void httpd_manager_start(bool captive_portal)
         };
         httpd_register_uri_handler(server, &metrics_uri);
 
+        httpd_uri_t index_json_uri = {
+            .uri      = "/index.json",
+            .method   = HTTP_GET,
+            .handler  = index_json_handler,
+            .user_ctx = NULL
+        };
+        httpd_register_uri_handler(server, &index_json_uri);
+
         httpd_uri_t root_uri = {
             .uri = "/*",
             .method = HTTP_GET,
@@ -601,9 +647,11 @@ void httpd_manager_start(bool captive_portal)
 void httpd_manager_set_callbacks(
     wifi_credentials_cb_t wifi_credentials,
     mqtt_config_cb_t mqtt_config,
-    ble_config_cb_t ble_config)
+    ble_config_cb_t ble_config,
+    ble_get_config_cb_t ble_get_config)
 {
     if (wifi_credentials) httpd_callbacks.wifi_credentials_cb = wifi_credentials;
     if (mqtt_config) httpd_callbacks.mqtt_config_cb = mqtt_config;
     if (ble_config) httpd_callbacks.ble_config_cb = ble_config;
+    if (ble_get_config) httpd_callbacks.ble_get_config_cb = ble_get_config;
 }

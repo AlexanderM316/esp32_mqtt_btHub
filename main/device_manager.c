@@ -5,17 +5,38 @@
 #include "freertos/task.h"
 #include "nvs.h"
 
+#include "esp_bt.h"
 #include "esp_gatt_common_api.h"
-
-#define GATT_NAMESPACE "gatt"
+#include "esp_gap_ble_api.h"
 
 #define CMD_MAX_LEN 12 //  max length of w_cmd
+
+static const char *NVS = "gatt";
 
 static const char *TAG = "GATT";
 
 static uint8_t w_cmd[CMD_MAX_LEN]; // default write cmd
 
 static char remote_device_name[32] = {0}; // bluetooth device name
+
+/**
+ * @brief gatt config type (what are we going to set/load)
+ */
+typedef enum {
+    GATT_CONFIG_DEVICE_NAME,
+    GATT_CONFIG_BLE_POWER,
+} gatt_config_type_t;
+/**
+ * @brief gatt config keys for nvs
+ */
+static const char* gatt_config_key(gatt_config_type_t type)
+{
+    switch (type) {
+        case GATT_CONFIG_DEVICE_NAME: return "device_name";
+        case GATT_CONFIG_BLE_POWER:   return "ble_power";
+        default:                      return NULL;
+    }
+}
 
 device_manager_t device_manager = {
     .scanning = false,
@@ -32,17 +53,41 @@ static esp_bt_uuid_t notify_descr_uuid = {
     .len = ESP_UUID_LEN_16,
     .uuid = {.uuid16 = ESP_GATT_UUID_CHAR_CLIENT_CONFIG,},
 };
+/*
+// map esp ble power to int 0-7
+static const esp_power_level_t power_map[8] = {
+    ESP_PWR_LVL_N12, // 0 → lowest
+    ESP_PWR_LVL_N9,  // 1
+    ESP_PWR_LVL_N6,  // 2
+    ESP_PWR_LVL_N3,  // 3
+    ESP_PWR_LVL_P0,  // 4
+    ESP_PWR_LVL_P3,  // 5
+    ESP_PWR_LVL_P6,  // 6
+    ESP_PWR_LVL_P9   // 7 → max
+};
+*/
 /**
  * @brief load gatt config from nvs 
 */
-static esp_err_t gatt_load_config(char* device_name, size_t device_name_len)
+static esp_err_t gatt_load_config(gatt_config_type_t type, void *value, size_t *len)
 {
+    const char *key = gatt_config_key(type);
+    if (!key) return ESP_ERR_INVALID_ARG;
+
     nvs_handle_t handle;
-    esp_err_t err = nvs_open(GATT_NAMESPACE, NVS_READONLY, &handle);
+    esp_err_t err = nvs_open(NVS, NVS_READONLY, &handle);
     if (err != ESP_OK) return err;
 
-    err = nvs_get_str(handle, "device_name", device_name, &device_name_len);
-    if (err != ESP_OK) { nvs_close(handle); return err; }
+    switch (type) {
+        case GATT_CONFIG_DEVICE_NAME:
+            err = nvs_get_str(handle, key, (char*)value, len);
+            break;
+        case GATT_CONFIG_BLE_POWER:
+            err = nvs_get_i8(handle, key, (int8_t*)value);
+            break;
+        default:
+            err = ESP_ERR_INVALID_ARG;
+    }
 
     nvs_close(handle);
     return err;
@@ -50,16 +95,32 @@ static esp_err_t gatt_load_config(char* device_name, size_t device_name_len)
 /**
  * @brief save gatt config to nvs 
 */
-static esp_err_t gatt_save_config(const char* device_name)
+static esp_err_t gatt_save_config(gatt_config_type_t type, const void* val)
 {
+    const char *key = gatt_config_key(type);
+    if (!key) return ESP_ERR_INVALID_ARG;
+
     nvs_handle_t handle;
-    esp_err_t err = nvs_open(GATT_NAMESPACE, NVS_READWRITE, &handle);
+    esp_err_t err = nvs_open(NVS, NVS_READWRITE, &handle);
     if (err != ESP_OK) return err;
 
-    nvs_set_str(handle, "device_name", device_name);
-    nvs_commit(handle);
+    switch (type) {
+        case GATT_CONFIG_DEVICE_NAME:
+            err = nvs_set_str(handle, key, (const char*)val);
+            break;
+        case GATT_CONFIG_BLE_POWER:
+            err = nvs_set_i8(handle, key, *(int8_t*)val); // BLE TX power is int8_t
+            break;
+        default:
+            err = ESP_ERR_INVALID_ARG;
+            break;
+    }
+
+    if (err == ESP_OK) {
+        nvs_commit(handle);
+    }
     nvs_close(handle);
-    return ESP_OK;
+    return err;
 }
 /**
  * @brief Modbus CRC function 
@@ -428,10 +489,23 @@ void device_manager_init(void)
     device_manager.device_connected_cb = NULL;
     device_manager.device_disconnected_cb = NULL;
 
-    esp_err_t err = gatt_load_config(remote_device_name, sizeof(remote_device_name));
+    size_t name_len = sizeof(remote_device_name);
+    esp_err_t err = gatt_load_config(GATT_CONFIG_DEVICE_NAME, remote_device_name, &name_len);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to load config from NVS (%s)", esp_err_to_name(err));
+        ESP_LOGW(TAG, "No device name found in NVS");
         return;
+    }
+    int8_t tx_power = 4; // default power
+    size_t power_len = sizeof(tx_power);
+   
+    err = gatt_load_config(GATT_CONFIG_BLE_POWER, &tx_power, &power_len);
+    if (err == ESP_OK) {
+       // esp_power_level_t esp_level = tx_power;
+        esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_DEFAULT, tx_power);
+        ESP_LOGI(TAG, "Restored BLE power from NVS: %d", tx_power);
+    } else {
+        ESP_LOGW(TAG, "BLE power not set, using default");
+        gatt_save_config(GATT_CONFIG_BLE_POWER, &tx_power);
     }
 
     // Register all devices (each gets its own profile)
@@ -708,33 +782,70 @@ void esp_gattc_cb(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp_ble_ga
     }
 }
 
-void ble_update_config(const char *device_name)
+void ble_update_config(const char *device_name, const int8_t *tx_power)
 {
-    ESP_LOGI(TAG, "Updating device name='%s'", device_name);
+    
+    if (strcmp(device_name, remote_device_name) != 0){ //if device name changed save new name
 
-    esp_err_t err = gatt_save_config(device_name);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to save config to NVS (%s)", esp_err_to_name(err));
+        ESP_LOGI(TAG, "Updating device name='%s'", device_name);
+        esp_err_t err = gatt_save_config(GATT_CONFIG_DEVICE_NAME, device_name);
+
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to save config to NVS (%s)", esp_err_to_name(err));
+            return;
+        }
+        // Update runtime variable
+        strncpy(remote_device_name, device_name, sizeof(remote_device_name) - 1);
+        remote_device_name[sizeof(remote_device_name) - 1] = '\0';
+
+        // Stop scanning if in progress
+        if (device_manager.scanning) {
+            stop_scanning();
+        }
+
+        // Reset device list
+        for (int i = 0; i < MAX_DEVICES; i++) {
+        memset(&device_manager.devices[i], 0, sizeof(flood_light_device_t));
+        }
+        device_manager.discovered_count = 0;
+        device_manager.all_devices_found = false;
+
+        // Restart discovery
+        start_device_discovery();
+
+        ESP_LOGI(TAG, "Discovery restarted for new BLE target name");
+    }
+    
+    int8_t old_power; 
+    size_t power_len = sizeof(old_power);
+   
+    esp_err_t err = gatt_load_config(GATT_CONFIG_BLE_POWER, &old_power, &power_len);
+    if (err != ESP_OK){
+        ESP_LOGE(TAG, "Failed to load BLE power (%s)", esp_err_to_name(err));
         return;
     }
-    // Update runtime variable
-    strncpy(remote_device_name, device_name, sizeof(remote_device_name) - 1);
-    remote_device_name[sizeof(remote_device_name) - 1] = '\0';
+    int8_t new_power = *tx_power;
+    if (old_power != new_power){
+        ESP_LOGI(TAG, "Updating BLE TX power=%d", new_power);
+        err = gatt_save_config(GATT_CONFIG_BLE_POWER, tx_power);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to save BLE power (%s)", esp_err_to_name(err));
+            return;
+        }
+        //esp_power_level_t esp_level = power_map[tx_power];
+        esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_DEFAULT, new_power);
+    } 
+       
+}
 
-    // Stop scanning if in progress
-    if (device_manager.scanning) {
-        stop_scanning();
+void ble_get_config(char *device_name,int8_t *tx_power)
+{
+    
+    strncpy(device_name, remote_device_name, sizeof(remote_device_name) - 1);
+
+    esp_err_t err = gatt_load_config(GATT_CONFIG_BLE_POWER, tx_power, NULL);
+    if (err != ESP_OK) {
+        *tx_power = 0; 
+        ESP_LOGE(TAG, "Failed to load BLE power (%s)", esp_err_to_name(err));
     }
-
-    // Reset device list
-    for (int i = 0; i < MAX_DEVICES; i++) {
-        memset(&device_manager.devices[i], 0, sizeof(flood_light_device_t));
-    }
-    device_manager.discovered_count = 0;
-    device_manager.all_devices_found = false;
-
-    // Restart discovery
-    start_device_discovery();
-
-    ESP_LOGI(TAG, "Discovery restarted for new BLE target name");
 }

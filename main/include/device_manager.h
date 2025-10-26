@@ -121,9 +121,14 @@ void esp_gattc_cb(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp_ble_ga
  */
 void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param);
 /**
- * @brief set bluetooth device config from http
- * @param device_name new device name to save
+ * @brief set device config 
+ * @param device_name new device name 
+ * @param tx_power ble power level
  */
-void ble_update_config(const char *device_name);
+void ble_update_config(const char *device_name, const int8_t *tx_power);
+/**
+ * @brief getter for current config
+ */
+void ble_get_config(char *device_name, int8_t *tx_power);
 
 #endif // device_manager_H

@@ -14,11 +14,11 @@ typedef void (*mqtt_config_cb_t)(const char *broker, const char *prefix, const c
 /**
  * @brief Type for ble(gatt) config save callback
  */
-typedef void (*ble_config_cb_t)(const char *device_name, const int8_t *tx_power);
+typedef void (*ble_config_cb_t)(const char *device_name, const uint8_t *tx_power, const uint8_t *interval, const uint8_t *duration);
 /**
  * @brief Getter callback for BLE config
  */
-typedef void (*ble_get_config_cb_t)(char *device_name, int8_t *tx_power);
+typedef void (*ble_get_config_cb_t)(char *device_name, uint8_t *tx_power, uint8_t *interval, uint8_t *duration);
 /**
  * @brief Start the HTTP server.
  * @param captive_portal  true for AP/captive portal mode

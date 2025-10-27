@@ -319,9 +319,11 @@ static esp_err_t index_json_handler(httpd_req_t *req)
     httpd_resp_set_type(req, "application/json");
 
     char device_name[32] ={0};
-    int8_t tx_power = 0;
+    uint8_t tx_power = 0;
+    uint8_t interval= 0;
+    uint8_t duration = 0;
     if (httpd_callbacks.ble_get_config_cb) {
-        httpd_callbacks.ble_get_config_cb( device_name, &tx_power);
+        httpd_callbacks.ble_get_config_cb( device_name, &tx_power, &interval, &duration);
     }
 
     char resp[512];
@@ -331,10 +333,14 @@ static esp_err_t index_json_handler(httpd_req_t *req)
             "\"prefix\":\" \","
             "\"user\":\" \","
             "\"device_name\":\"%s\","
-            "\"tx_power\":%d"
+            "\"tx_power\":%d,"
+            "\"interval\":%d,"
+            "\"duration\":%d"
         "}",
         device_name,
-        (int8_t)tx_power
+        (uint8_t)tx_power,
+        (uint8_t)interval,
+        (uint8_t)duration
     );
 
     if (len < 0 || len >= sizeof(resp)) {
@@ -481,11 +487,13 @@ static esp_err_t ble_submit_post(httpd_req_t *req)
     }
 
     const char *ble_name = cJSON_GetStringValue(cJSON_GetObjectItem(json, "device_name"));
-    int8_t tx_power = (int8_t)cJSON_GetNumberValue(cJSON_GetObjectItem(json, "tx_power"));
+    uint8_t tx_power = (uint8_t)cJSON_GetNumberValue(cJSON_GetObjectItem(json, "tx_power"));
+    uint8_t interval = (uint8_t)cJSON_GetNumberValue(cJSON_GetObjectItem(json, "interval"));
+    uint8_t duration = (uint8_t)cJSON_GetNumberValue(cJSON_GetObjectItem(json, "duration"));
 
-    ESP_LOGI(TAG, "ble config received: device_name=%s, tx_power=%d", ble_name, (int)tx_power);
+    ESP_LOGI(TAG, "ble config received: device_name=%s, tx_power=%d, interval=%d, duration=%d", ble_name, (int)tx_power, (int)interval, (int)duration);
 
-    httpd_callbacks.ble_config_cb( ble_name ? ble_name : "",&tx_power);
+    httpd_callbacks.ble_config_cb( ble_name ? ble_name : "",&tx_power, &interval, &duration);
 
     cJSON_Delete(json);
 

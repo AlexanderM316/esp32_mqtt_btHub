@@ -127,10 +127,10 @@ void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param);
  * @param device_name new device name 
  * @param tx_power ble power level
  */
-void ble_update_config(const char *device_name, const int8_t *tx_power);
+void ble_update_config(const char *device_name, const uint8_t *tx_power, const uint8_t *interval, const uint8_t *duration);
 /**
  * @brief getter for current config
  */
-void ble_get_config(char *device_name, int8_t *tx_power);
+void ble_get_config(char *device_name, uint8_t *tx_power, uint8_t *interval, uint8_t *duration);
 
 #endif // device_manager_H

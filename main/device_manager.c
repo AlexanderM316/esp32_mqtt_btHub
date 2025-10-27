@@ -24,11 +24,13 @@ static char remote_device_name[32] = {0}; // bluetooth device name
 typedef enum {
     GATT_CONFIG_DEVICE_NAME,
     GATT_CONFIG_BLE_POWER,
+    GATT_CONFIG_BLE_INTERVAL,
+    GATT_CONFIG_BLE_DURATION,
 } gatt_config_type_t;
 
 device_manager_t device_manager = {
     .scanning = false,
-    .scan_interval = 5,
+    .scan_interval = 5,  // in s
     .scan_duration = 15,
     .scan_timer = NULL,
     .all_devices_found = false,
@@ -66,6 +68,8 @@ static const char* gatt_config_key(gatt_config_type_t type)
     switch (type) {
         case GATT_CONFIG_DEVICE_NAME: return "device_name";
         case GATT_CONFIG_BLE_POWER:   return "ble_power";
+        case GATT_CONFIG_BLE_INTERVAL: return "ble_interval";
+        case GATT_CONFIG_BLE_DURATION:   return "ble_duration";
         default:                      return NULL;
     }
 }
@@ -86,9 +90,13 @@ static esp_err_t gatt_load_config(gatt_config_type_t type, void *value, size_t *
         case GATT_CONFIG_DEVICE_NAME:
             err = nvs_get_str(handle, key, (char*)value, len);
             break;
+
         case GATT_CONFIG_BLE_POWER:
-            err = nvs_get_i8(handle, key, (int8_t*)value);
+        case GATT_CONFIG_BLE_INTERVAL:
+        case GATT_CONFIG_BLE_DURATION:
+            err = nvs_get_u8(handle, key, (uint8_t*)value);
             break;
+
         default:
             err = ESP_ERR_INVALID_ARG;
     }
@@ -112,9 +120,13 @@ static esp_err_t gatt_save_config(gatt_config_type_t type, const void* val)
         case GATT_CONFIG_DEVICE_NAME:
             err = nvs_set_str(handle, key, (const char*)val);
             break;
+
         case GATT_CONFIG_BLE_POWER:
-            err = nvs_set_i8(handle, key, *(int8_t*)val); // BLE TX power is int8_t
+        case GATT_CONFIG_BLE_INTERVAL:
+        case GATT_CONFIG_BLE_DURATION:
+            err = nvs_set_u8(handle, key, *(uint8_t*)val); // all are uint8_t
             break;
+
         default:
             err = ESP_ERR_INVALID_ARG;
             break;
@@ -572,8 +584,28 @@ void device_manager_init(void)
         esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_DEFAULT, tx_power);
         ESP_LOGI(TAG, "Restored BLE power from NVS: %d", tx_power);
     } else {
-        ESP_LOGW(TAG, "BLE power not set, using default");
+        ESP_LOGW(TAG, "BLE power not found, using default");
         gatt_save_config(GATT_CONFIG_BLE_POWER, &tx_power);
+    }
+
+    size_t interval_len = device_manager.scan_interval;
+    err = gatt_load_config(GATT_CONFIG_BLE_INTERVAL, &device_manager.scan_interval, &interval_len);
+    if (err == ESP_OK) {
+      
+        ESP_LOGI(TAG, "Restored BLE scan interval from NVS: %d", device_manager.scan_interval);
+    } else {
+        ESP_LOGW(TAG, " BLE scan interval not found, using default");
+        gatt_save_config(GATT_CONFIG_BLE_INTERVAL, &device_manager.scan_interval);
+    }
+
+    size_t duration_len = device_manager.scan_duration;
+    err = gatt_load_config(GATT_CONFIG_BLE_DURATION, &device_manager.scan_duration, &duration_len);
+    if (err == ESP_OK) {
+      
+        ESP_LOGI(TAG, "Restored BLE scan interval from NVS: %d", device_manager.scan_interval);
+    } else {
+        ESP_LOGW(TAG, " BLE scan duration not found, using default");
+        gatt_save_config(GATT_CONFIG_BLE_DURATION, &device_manager.scan_duration);
     }
 
     // Register all devices (each gets its own profile)
@@ -846,7 +878,8 @@ void esp_gattc_cb(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp_ble_ga
     }
 }
 
-void ble_update_config(const char *device_name, const int8_t *tx_power)
+void ble_update_config(const char *device_name, const uint8_t *tx_power,
+                         const uint8_t *interval, const uint8_t *duration)
 {
     
     if (strcmp(device_name, remote_device_name) != 0){ //if device name changed save new name
@@ -881,7 +914,7 @@ void ble_update_config(const char *device_name, const int8_t *tx_power)
         ESP_LOGI(TAG, "Scan restarted for new BLE target name");
     }
     
-    int8_t old_power; 
+    uint8_t old_power; 
     size_t power_len = sizeof(old_power);
    
     esp_err_t err = gatt_load_config(GATT_CONFIG_BLE_POWER, &old_power, &power_len);
@@ -889,7 +922,7 @@ void ble_update_config(const char *device_name, const int8_t *tx_power)
         ESP_LOGE(TAG, "Failed to load BLE power (%s)", esp_err_to_name(err));
         return;
     }
-    int8_t new_power = *tx_power;
+    uint8_t new_power = *tx_power;
     if (old_power != new_power){
         ESP_LOGI(TAG, "Updating BLE TX power=%d", new_power);
         err = gatt_save_config(GATT_CONFIG_BLE_POWER, tx_power);
@@ -900,10 +933,33 @@ void ble_update_config(const char *device_name, const int8_t *tx_power)
         //esp_power_level_t esp_level = power_map[tx_power];
         esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_DEFAULT, new_power);
     } 
+    uint8_t new_interval = *interval;
+    if (new_interval != device_manager.scan_interval){
+        // update runtime var
+        device_manager.scan_interval = new_interval;
+        ESP_LOGI(TAG, "Updating BLE scan interval=%d", new_interval);
+        err = gatt_save_config(GATT_CONFIG_BLE_INTERVAL, interval);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to save BLE scan interval (%s)", esp_err_to_name(err));
+            return;
+        }
+        
+    }
+    uint8_t new_duration = *duration;
+    if (new_duration != device_manager.scan_duration){
+        // update runtime var
+        device_manager.scan_duration = new_duration;
+        ESP_LOGI(TAG, "Updating BLE scan duration=%d", new_duration);
+        err = gatt_save_config(GATT_CONFIG_BLE_DURATION, duration);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to save BLE scan duration (%s)", esp_err_to_name(err));
+            return;
+        }
+    }
        
 }
 
-void ble_get_config(char *device_name,int8_t *tx_power)
+void ble_get_config(char *device_name,uint8_t *tx_power, uint8_t *interval, uint8_t *duration)
 {
     
     strncpy(device_name, remote_device_name, sizeof(remote_device_name) - 1);
@@ -913,4 +969,6 @@ void ble_get_config(char *device_name,int8_t *tx_power)
         *tx_power = 0; 
         ESP_LOGE(TAG, "Failed to load BLE power (%s)", esp_err_to_name(err));
     }
+    *interval = device_manager.scan_interval;
+    *duration = device_manager.scan_duration;
 }

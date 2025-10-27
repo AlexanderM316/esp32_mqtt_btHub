@@ -15,7 +15,6 @@
 #include "lwip/sys.h"
 
 #include "esp_bt.h"
-#include "esp_bt_main.h"
 
 static const char *TAG = "main";
 
@@ -36,44 +35,6 @@ void app_main(void)
     ESP_LOGI(TAG, "Initializing MQTT...");
     mqtt_start();
 
-    esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
-    ret = esp_bt_controller_init(&bt_cfg);
-    if (ret) {
-        ESP_LOGE(TAG, "Controller init failed: %s", esp_err_to_name(ret));
-        return;
-    }
-
-    ret = esp_bt_controller_enable(ESP_BT_MODE_BLE);
-    if (ret) {
-        ESP_LOGE(TAG, "Controller enable failed: %s", esp_err_to_name(ret));
-        return;
-    }
-
-    esp_bluedroid_config_t cfg = BT_BLUEDROID_INIT_CONFIG_DEFAULT();
-    ret = esp_bluedroid_init_with_cfg(&cfg);
-    if (ret) {
-        ESP_LOGE(TAG, "Bluedroid init failed: %s", esp_err_to_name(ret));
-        return;
-    }
-
-    ret = esp_bluedroid_enable();
-    if (ret) {
-        ESP_LOGE(TAG, "Bluedroid enable failed: %s", esp_err_to_name(ret));
-        return;
-    }
-
-    // Register callbacks
-    ret = esp_ble_gap_register_callback(esp_gap_cb);
-    if (ret){
-        ESP_LOGE(TAG, "GAP register error: %x", ret);
-        return;
-    }
-
-    ret = esp_ble_gattc_register_callback(esp_gattc_cb);
-    if(ret){
-        ESP_LOGE(TAG, "GATTC register error: %x", ret);
-        return;
-    }
     device_manager_init();
     
     // Register the MQTT callback
@@ -81,9 +42,5 @@ void app_main(void)
     // Register the httpd server callbacks
     httpd_manager_set_callbacks(wifi_update_credentials, mqtt_update_config, ble_update_config,
                                 ble_get_config);
-
-    // Start discovery
-    ESP_LOGI(TAG, "Starting device discovery...");
-    start_device_discovery();
-    
+  
 }

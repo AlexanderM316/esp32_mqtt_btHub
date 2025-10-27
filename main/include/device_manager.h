@@ -4,6 +4,8 @@
 #include "esp_gatt_defs.h"
 #include "esp_gap_ble_api.h"
 #include "esp_gattc_api.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 
 #define MAX_DEVICES 3  // max number of devices
@@ -46,6 +48,9 @@ typedef struct {
 
 typedef struct {
     bool scanning;
+    uint8_t scan_interval;
+    uint8_t scan_duration;
+    TimerHandle_t scan_timer;
     bool all_devices_found;
     flood_light_device_t devices[MAX_DEVICES];
     int discovered_count;
@@ -73,10 +78,7 @@ void device_manager_set_callbacks(
     device_connected_cb_t device_connected,
     device_disconnected_cb_t device_disconnected,
     device_power_state_cb_t device_power_state);
-/**
- * @brief Start looking for devices but don't connect
- */
-void start_device_discovery(void);
+
 /**
  * @brief find app id of device with this mac
  * @param device_index mac address

@@ -3,8 +3,6 @@
 
 #include "device_manager.h" 
 
-#include "esp_mac.h"
-
 /**
  * @brief MQTT initilization
  */

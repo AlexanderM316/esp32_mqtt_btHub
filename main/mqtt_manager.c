@@ -1,5 +1,6 @@
 #include "mqtt_manager.h"
 
+#include "esp_mac.h"
 #include "esp_log.h"
 #include "mqtt_client.h"
 #include "cJSON.h"

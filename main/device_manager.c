@@ -1,11 +1,10 @@
 #include "device_manager.h"
 
 #include "esp_log.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
 #include "nvs.h"
 
 #include "esp_bt.h"
+#include "esp_bt_main.h"
 #include "esp_gatt_common_api.h"
 #include "esp_gap_ble_api.h"
 
@@ -26,20 +25,12 @@ typedef enum {
     GATT_CONFIG_DEVICE_NAME,
     GATT_CONFIG_BLE_POWER,
 } gatt_config_type_t;
-/**
- * @brief gatt config keys for nvs
- */
-static const char* gatt_config_key(gatt_config_type_t type)
-{
-    switch (type) {
-        case GATT_CONFIG_DEVICE_NAME: return "device_name";
-        case GATT_CONFIG_BLE_POWER:   return "ble_power";
-        default:                      return NULL;
-    }
-}
 
 device_manager_t device_manager = {
     .scanning = false,
+    .scan_interval = 5,
+    .scan_duration = 15,
+    .scan_timer = NULL,
     .all_devices_found = false,
     .discovered_count = 0,
     .device_found_cb = NULL,
@@ -48,11 +39,11 @@ device_manager_t device_manager = {
     .device_disconnected_cb = NULL
 };
 
-// Static functions//////////////////////////////////////////////////////
 static esp_bt_uuid_t notify_descr_uuid = {
     .len = ESP_UUID_LEN_16,
     .uuid = {.uuid16 = ESP_GATT_UUID_CHAR_CLIENT_CONFIG,},
 };
+
 /*
 // map esp ble power to int 0-7
 static const esp_power_level_t power_map[8] = {
@@ -66,6 +57,19 @@ static const esp_power_level_t power_map[8] = {
     ESP_PWR_LVL_P9   // 7 → max
 };
 */
+// Static functions//////////////////////////////////////////////////////
+/**
+ * @brief gatt config keys for nvs
+ */
+static const char* gatt_config_key(gatt_config_type_t type)
+{
+    switch (type) {
+        case GATT_CONFIG_DEVICE_NAME: return "device_name";
+        case GATT_CONFIG_BLE_POWER:   return "ble_power";
+        default:                      return NULL;
+    }
+}
+
 /**
  * @brief load gatt config from nvs 
 */
@@ -183,17 +187,37 @@ static size_t build_cmd(uint8_t opcode, const uint8_t *payload, size_t payload_l
     if (pkt_len > CMD_MAX_LEN) return 0;
     return pkt_len;
 }
+static void stop_scan_timer(void)
+{
+    if (device_manager.scan_timer != NULL) {
+        if (xTimerIsTimerActive(device_manager.scan_timer)) {
+            xTimerStop(device_manager.scan_timer, portMAX_DELAY);
+            ESP_LOGI(TAG, "Scan timer stopped");
+        }
+    }
+}
 
+static void start_scan_timer(void)
+{
+    if (device_manager.scan_timer != NULL) {
+        xTimerChangePeriod(device_manager.scan_timer, 
+                          pdMS_TO_TICKS(device_manager.scan_interval * 1000), 0);
+        xTimerStart(device_manager.scan_timer, 0);
+        ESP_LOGI(TAG, "Scan timer restarting scan in %d", device_manager.scan_interval);
+    }
+}
 static void start_scanning(void)
 {
-    if (device_manager.all_devices_found) {
-        ESP_LOGI(TAG, "All devices already found");
+    if (device_manager.scanning) {
+        ESP_LOGI(TAG, "Scanning already in progress");
         return;
     }
     
+    device_manager.all_devices_found = false;
     device_manager.scanning = true;
-    ESP_LOGI(TAG, "Starting discovery for %d devices ...", MAX_DEVICES);
-    esp_ble_gap_start_scanning(30);
+
+    esp_ble_gap_start_scanning(device_manager.scan_duration);
+    ESP_LOGI(TAG, "Scaning started for %d s", (int)device_manager.scan_duration); 
 }
 
 static void stop_scanning(void)
@@ -201,6 +225,13 @@ static void stop_scanning(void)
     device_manager.scanning = false;
     esp_ble_gap_stop_scanning();
     ESP_LOGI(TAG, "Scanning stopped");
+}
+/**
+ * @brief ble scan task callback
+*/
+static void scan_timer_cb(TimerHandle_t xTimer)
+{
+    start_scanning();
 }
 
 static bool control_device(int device_index, uint8_t *data, uint16_t length)
@@ -467,6 +498,43 @@ static void gattc_device_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t
 
 void device_manager_init(void)
 {
+    esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
+    esp_err_t err = esp_bt_controller_init(&bt_cfg);
+    if (err) {
+        ESP_LOGE(TAG, "Controller init failed: %s", esp_err_to_name(err));
+        return;
+    }
+
+    err = esp_bt_controller_enable(ESP_BT_MODE_BLE);
+    if (err) {
+        ESP_LOGE(TAG, "Controller enable failed: %s", esp_err_to_name(err));
+        return;
+    }
+
+    esp_bluedroid_config_t cfg = BT_BLUEDROID_INIT_CONFIG_DEFAULT();
+    err = esp_bluedroid_init_with_cfg(&cfg);
+    if (err) {
+        ESP_LOGE(TAG, "Bluedroid init failed: %s", esp_err_to_name(err));
+        return;
+    }
+
+    err = esp_bluedroid_enable();
+    if (err) {
+        ESP_LOGE(TAG, "Bluedroid enable failed: %s", esp_err_to_name(err));
+        return;
+    }
+    // Register callbacks
+    err = esp_ble_gap_register_callback(esp_gap_cb);
+    if (err){
+        ESP_LOGE(TAG, "GAP register error: %x", err);
+        return;
+    }
+
+    err = esp_ble_gattc_register_callback(esp_gattc_cb);
+    if(err){
+        ESP_LOGE(TAG, "GATTC register error: %x", err);
+        return;
+    }
     // Initialize all devices
     for (int i = 0; i < MAX_DEVICES; i++) {
         device_manager.devices[i].discovered = false;
@@ -490,7 +558,7 @@ void device_manager_init(void)
     device_manager.device_disconnected_cb = NULL;
 
     size_t name_len = sizeof(remote_device_name);
-    esp_err_t err = gatt_load_config(GATT_CONFIG_DEVICE_NAME, remote_device_name, &name_len);
+    err = gatt_load_config(GATT_CONFIG_DEVICE_NAME, remote_device_name, &name_len);
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "No device name found in NVS");
         return;
@@ -524,6 +592,17 @@ void device_manager_init(void)
     }
 
     ESP_LOGI(TAG, "Device Manager initialized for %d devices", MAX_DEVICES);
+
+    device_manager.scan_timer = xTimerCreate(
+        "BLE_Scan_Timer",
+        pdMS_TO_TICKS(device_manager.scan_interval * 1000), // convert to ms
+        pdFALSE,  
+        (void *)0,
+        scan_timer_cb
+    );
+
+    ESP_LOGI(TAG, "Starting device discovery...");
+    start_scanning();
 }
 
 void device_manager_set_callbacks(
@@ -538,17 +617,6 @@ void device_manager_set_callbacks(
     if (device_connected) device_manager.device_connected_cb = device_connected;
     if (device_disconnected) device_manager.device_disconnected_cb = device_disconnected;
     if (device_power_state) device_manager.device_power_state_cb = device_power_state;
-}
-
-void start_device_discovery(void)
-{
-    if (device_manager.scanning) {
-        ESP_LOGI(TAG, "Discovery already in progress");
-        return;
-    }
-    
-    device_manager.all_devices_found = false;
-    start_scanning();
 }
 
 int find_device_by_mac(esp_bd_addr_t mac_addr)
@@ -711,7 +779,6 @@ void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param)
                         // Check if we found all devices
                         if (device_manager.discovered_count >= MAX_DEVICES) {
                             device_manager.all_devices_found = true;
-                            stop_scanning();
                             ESP_LOGI(TAG, "All %d devices found!", MAX_DEVICES);
                             
                             if (device_manager.all_devices_found_cb) {
@@ -724,14 +791,11 @@ void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param)
             break;
             
         case ESP_GAP_SEARCH_INQ_CMPL_EVT:
-            if (!device_manager.all_devices_found) {
-                ESP_LOGI(TAG, "Scan completed, found %d/%d devices. Restarting scan in 3s", 
+            
+            ESP_LOGI(TAG, "Scan completed, found %d/%d devices.", 
                         device_manager.discovered_count, MAX_DEVICES);
-                vTaskDelay(pdMS_TO_TICKS(3000));
-                start_scanning();
-            } else {
-                ESP_LOGI(TAG, "Scan completed - all devices found");
-            }
+            device_manager.scanning = false;
+            start_scan_timer();
             break;
             
         default:
@@ -802,6 +866,8 @@ void ble_update_config(const char *device_name, const int8_t *tx_power)
         if (device_manager.scanning) {
             stop_scanning();
         }
+        // stop scan timer so it dosent start scanning unexpectedly 
+        stop_scan_timer();
 
         // Reset device list
         for (int i = 0; i < MAX_DEVICES; i++) {
@@ -810,10 +876,9 @@ void ble_update_config(const char *device_name, const int8_t *tx_power)
         device_manager.discovered_count = 0;
         device_manager.all_devices_found = false;
 
-        // Restart discovery
-        start_device_discovery();
+        start_scanning();
 
-        ESP_LOGI(TAG, "Discovery restarted for new BLE target name");
+        ESP_LOGI(TAG, "Scan restarted for new BLE target name");
     }
     
     int8_t old_power; 

@@ -6,7 +6,9 @@
 #include "esp_bt.h"
 #include "esp_bt_main.h"
 #include "esp_gatt_common_api.h"
+#include "esp_gattc_api.h"
 #include "esp_gap_ble_api.h"
+
 
 #define CMD_MAX_LEN 12 //  max length of w_cmd
 
@@ -507,6 +509,166 @@ static void gattc_device_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t
         break;
     }
 }
+/**
+ * @brief  GATTC callback
+ */
+static void esp_gattc_cb(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp_ble_gattc_cb_param_t *param)
+{
+    int device_index = -1;
+
+    if (event == ESP_GATTC_REG_EVT) {
+        // Store the gattc_if for this device (app_id is the device index)
+        device_index = param->reg.app_id;
+        if (device_index < MAX_DEVICES) {
+            device_manager.devices[device_index].gattc_if = gattc_if;
+            ESP_LOGI(TAG, "Device %d assigned gattc_if %d", device_index, gattc_if);
+        }
+    } else {
+        // For other events, find the device by gattc_if
+        for (int i = 0; i < MAX_DEVICES; i++) {
+            if (device_manager.devices[i].gattc_if == gattc_if) {
+                device_index = i;
+                break;
+            }
+        }
+    }
+
+    if (device_index >= 0 && device_index < MAX_DEVICES) {
+        gattc_device_event_handler(event, gattc_if, param, device_index);
+    } else {
+        ESP_LOGW(TAG, "Event %d for unknown gattc_if: %d", event, gattc_if);
+    }
+}
+/**
+ * @brief Add new device
+ */
+static void device_manager_add_device(esp_bd_addr_t mac)
+{
+    if (device_manager.discovered_count >= MAX_DEVICES) {
+        ESP_LOGW(TAG, "Device limit reached (%d)", MAX_DEVICES);
+        return;
+    }
+    
+    int index = device_manager.discovered_count;
+    flood_light_device_t *device = &device_manager.devices[index];
+                        
+    memcpy(device->mac_address, mac, ESP_BD_ADDR_LEN);
+    strncpy(device->name, remote_device_name, sizeof(device->name) - 1);
+    device->discovered = true;
+    device->app_id = index;
+    device->gattc_if = ESP_GATT_IF_NONE;
+
+    ESP_LOGI(TAG, "Discovered device #%d", index);
+    ESP_LOG_BUFFER_HEX(TAG, mac, ESP_BD_ADDR_LEN);
+
+    esp_err_t err = esp_ble_gattc_app_register(index);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to register GATTC profile for device %d: %s",
+                 index, esp_err_to_name(err));
+        return;
+    }
+
+    device_manager.discovered_count++;
+
+    // Notify callback
+    if (device_manager.device_found_cb) {
+        device_manager.device_found_cb(index, mac);
+    }
+
+    // Check if we found all devices
+    if (device_manager.discovered_count >= MAX_DEVICES) {
+
+        device_manager.all_devices_found = true;
+        ESP_LOGI(TAG, "All %d devices found!", MAX_DEVICES);
+                            
+        if (device_manager.all_devices_found_cb) {
+            device_manager.all_devices_found_cb();
+        }
+    }
+}
+/**
+ * @brief GAP callback
+ */
+static void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param)
+{
+    uint8_t *adv_name = NULL;
+    uint8_t adv_name_len = 0;
+
+    switch (event) {
+    case ESP_GAP_BLE_SCAN_PARAM_SET_COMPLETE_EVT:
+        start_scanning();
+        break;
+        
+    case ESP_GAP_BLE_SCAN_START_COMPLETE_EVT:
+        if (!(param->scan_start_cmpl.status == ESP_BT_STATUS_SUCCESS)) {
+             ESP_LOGE(TAG, "Scan start failed");
+        }
+        break;
+        
+    case ESP_GAP_BLE_SCAN_RESULT_EVT: {
+        esp_ble_gap_cb_param_t *scan_result = (esp_ble_gap_cb_param_t *)param;
+        
+        switch (scan_result->scan_rst.search_evt) {
+        case ESP_GAP_SEARCH_INQ_RES_EVT:
+            if (device_manager.all_devices_found) {
+                break;
+            }
+            
+            adv_name = esp_ble_resolve_adv_data_by_type(
+                scan_result->scan_rst.ble_adv,
+                scan_result->scan_rst.adv_data_len + scan_result->scan_rst.scan_rsp_len,
+                ESP_BLE_AD_TYPE_NAME_CMPL,
+                &adv_name_len);
+                
+            if (adv_name != NULL) {
+                if (strlen(remote_device_name) == adv_name_len && 
+                    strncmp((char *)adv_name, remote_device_name, adv_name_len) == 0) 
+                {
+                    // Check if we already have this device
+                    bool exists = false;
+                    for (int i = 0; i < device_manager.discovered_count; i++) {
+                        if (memcmp(device_manager.devices[i].mac_address, 
+                                 scan_result->scan_rst.bda, ESP_BD_ADDR_LEN) == 0) {
+                            exists = true;
+                            break;
+                        }
+                    }
+                    
+                    if (!exists) {
+                        device_manager_add_device(scan_result->scan_rst.bda);   
+                    }  
+                }
+            }
+            break;
+            
+        case ESP_GAP_SEARCH_INQ_CMPL_EVT:
+            
+            ESP_LOGI(TAG, "Scan completed, found %d/%d devices.", 
+                        device_manager.discovered_count, MAX_DEVICES);
+            device_manager.scanning = false;
+            start_scan_timer();
+            break;
+            
+        default:
+            break;
+        }
+        break;
+    }
+    
+    case ESP_GAP_BLE_SCAN_STOP_COMPLETE_EVT:
+        if (param->scan_stop_cmpl.status != ESP_BT_STATUS_SUCCESS){
+            ESP_LOGE(TAG, "Scan stop failed");
+        } else {
+            ESP_LOGI(TAG, "Scan stopped successfully");
+            device_manager.scanning = false;
+        }
+        break;
+        
+    default:
+        break;
+    }
+}
+/////////////// static ends here //////////////////
 
 void device_manager_init(void)
 {
@@ -547,18 +709,6 @@ void device_manager_init(void)
         ESP_LOGE(TAG, "GATTC register error: %x", err);
         return;
     }
-    // Initialize all devices
-    for (int i = 0; i < MAX_DEVICES; i++) {
-        device_manager.devices[i].discovered = false;
-        device_manager.devices[i].connected = false;
-        device_manager.devices[i].power_state = false;
-        device_manager.devices[i].gattc_if = ESP_GATT_IF_NONE;
-        device_manager.devices[i].app_id = i;
-        device_manager.devices[i].char_handle = 0;
-        device_manager.devices[i].write_char_handle = 0;
-        memset(device_manager.devices[i].mac_address, 0, ESP_BD_ADDR_LEN);
-        memset(device_manager.devices[i].name, 0, sizeof(device_manager.devices[i].name));
-    }
     
     device_manager.discovered_count = 0;
     device_manager.all_devices_found = false;
@@ -588,7 +738,7 @@ void device_manager_init(void)
         gatt_save_config(GATT_CONFIG_BLE_POWER, &tx_power);
     }
 
-    size_t interval_len = device_manager.scan_interval;
+    size_t interval_len = sizeof(device_manager.scan_interval);
     err = gatt_load_config(GATT_CONFIG_BLE_INTERVAL, &device_manager.scan_interval, &interval_len);
     if (err == ESP_OK) {
       
@@ -598,7 +748,7 @@ void device_manager_init(void)
         gatt_save_config(GATT_CONFIG_BLE_INTERVAL, &device_manager.scan_interval);
     }
 
-    size_t duration_len = device_manager.scan_duration;
+    size_t duration_len = sizeof(device_manager.scan_duration);
     err = gatt_load_config(GATT_CONFIG_BLE_DURATION, &device_manager.scan_duration, &duration_len);
     if (err == ESP_OK) {
       
@@ -607,23 +757,11 @@ void device_manager_init(void)
         ESP_LOGW(TAG, " BLE scan duration not found, using default");
         gatt_save_config(GATT_CONFIG_BLE_DURATION, &device_manager.scan_duration);
     }
-
-    // Register all devices (each gets its own profile)
-    for (int i = 0; i < MAX_DEVICES; i++) {
-        err = esp_ble_gattc_app_register(i);
-        if (err){
-            ESP_LOGE(TAG, "Device %d register error: %x", i, err);
-        } else {
-            ESP_LOGI(TAG, "Registered device/profile %d", i);
-        }
-    }
     
     err = esp_ble_gatt_set_local_mtu(200);
     if (err){
         ESP_LOGE(TAG, "MTU set failed: %x", err);
     }
-
-    ESP_LOGI(TAG, "Device Manager initialized for %d devices", MAX_DEVICES);
 
     device_manager.scan_timer = xTimerCreate(
         "BLE_Scan_Timer",
@@ -743,139 +881,6 @@ bool device_set_color(int device_index, uint8_t r, uint8_t g, uint8_t b)
     size_t cmd_len = build_cmd(0x17, payload, 7);
     if (!cmd_len) return false;
     return control_device(device_index, w_cmd, cmd_len);
-}
-
-void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param)
-{
-    uint8_t *adv_name = NULL;
-    uint8_t adv_name_len = 0;
-
-    switch (event) {
-    case ESP_GAP_BLE_SCAN_PARAM_SET_COMPLETE_EVT:
-        start_scanning();
-        break;
-        
-    case ESP_GAP_BLE_SCAN_START_COMPLETE_EVT:
-        if (!(param->scan_start_cmpl.status == ESP_BT_STATUS_SUCCESS)) {
-             ESP_LOGE(TAG, "Scan start failed");
-        }
-        break;
-        
-    case ESP_GAP_BLE_SCAN_RESULT_EVT: {
-        esp_ble_gap_cb_param_t *scan_result = (esp_ble_gap_cb_param_t *)param;
-        
-        switch (scan_result->scan_rst.search_evt) {
-        case ESP_GAP_SEARCH_INQ_RES_EVT:
-            if (device_manager.all_devices_found) {
-                break;
-            }
-            
-            adv_name = esp_ble_resolve_adv_data_by_type(
-                scan_result->scan_rst.ble_adv,
-                scan_result->scan_rst.adv_data_len + scan_result->scan_rst.scan_rsp_len,
-                ESP_BLE_AD_TYPE_NAME_CMPL,
-                &adv_name_len);
-                
-            if (adv_name != NULL) {
-                if (strlen(remote_device_name) == adv_name_len && 
-                    strncmp((char *)adv_name, remote_device_name, adv_name_len) == 0) {
-
-                    // Check if we already have this device
-                    bool exists = false;
-                    for (int i = 0; i < device_manager.discovered_count; i++) {
-                        if (memcmp(device_manager.devices[i].mac_address, 
-                                 scan_result->scan_rst.bda, ESP_BD_ADDR_LEN) == 0) {
-                            exists = true;
-                            break;
-                        }
-                    }
-
-                    if (!exists && device_manager.discovered_count < MAX_DEVICES) {
-                        int new_index = device_manager.discovered_count;
-                        flood_light_device_t *device = &device_manager.devices[new_index];
-                        
-                        memcpy(device->mac_address, scan_result->scan_rst.bda, ESP_BD_ADDR_LEN);
-                        strncpy(device->name, remote_device_name, sizeof(device->name) - 1);
-                        device->discovered = true;
-                        
-                        ESP_LOGI(TAG, "Discovered device #%d", new_index);
-                        ESP_LOG_BUFFER_HEX(TAG, scan_result->scan_rst.bda, 6);
-                        
-                        device_manager.discovered_count++;
-
-                        // Notify callback
-                        if (device_manager.device_found_cb) {
-                            device_manager.device_found_cb(new_index, scan_result->scan_rst.bda);
-                        }
-
-                        // Check if we found all devices
-                        if (device_manager.discovered_count >= MAX_DEVICES) {
-                            device_manager.all_devices_found = true;
-                            ESP_LOGI(TAG, "All %d devices found!", MAX_DEVICES);
-                            
-                            if (device_manager.all_devices_found_cb) {
-                                device_manager.all_devices_found_cb();
-                            }
-                        }
-                    }
-                }
-            }
-            break;
-            
-        case ESP_GAP_SEARCH_INQ_CMPL_EVT:
-            
-            ESP_LOGI(TAG, "Scan completed, found %d/%d devices.", 
-                        device_manager.discovered_count, MAX_DEVICES);
-            device_manager.scanning = false;
-            start_scan_timer();
-            break;
-            
-        default:
-            break;
-        }
-        break;
-    }
-    
-    case ESP_GAP_BLE_SCAN_STOP_COMPLETE_EVT:
-        if (param->scan_stop_cmpl.status != ESP_BT_STATUS_SUCCESS){
-            ESP_LOGE(TAG, "Scan stop failed");
-        } else {
-            ESP_LOGI(TAG, "Scan stopped successfully");
-            device_manager.scanning = false;
-        }
-        break;
-        
-    default:
-        break;
-    }
-}
-
-void esp_gattc_cb(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp_ble_gattc_cb_param_t *param)
-{
-    int device_index = -1;
-
-    if (event == ESP_GATTC_REG_EVT) {
-        // Store the gattc_if for this device (app_id is the device index)
-        device_index = param->reg.app_id;
-        if (device_index < MAX_DEVICES) {
-            device_manager.devices[device_index].gattc_if = gattc_if;
-            ESP_LOGI(TAG, "Device %d assigned gattc_if %d", device_index, gattc_if);
-        }
-    } else {
-        // For other events, find the device by gattc_if
-        for (int i = 0; i < MAX_DEVICES; i++) {
-            if (device_manager.devices[i].gattc_if == gattc_if) {
-                device_index = i;
-                break;
-            }
-        }
-    }
-
-    if (device_index >= 0 && device_index < MAX_DEVICES) {
-        gattc_device_event_handler(event, gattc_if, param, device_index);
-    } else {
-        ESP_LOGW(TAG, "Event %d for unknown gattc_if: %d", event, gattc_if);
-    }
 }
 
 void ble_update_config(const char *device_name, const uint8_t *tx_power,

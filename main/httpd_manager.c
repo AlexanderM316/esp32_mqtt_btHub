@@ -472,7 +472,7 @@ static esp_err_t mqtt_submit_post(httpd_req_t *req)
  */ 
 static esp_err_t ble_submit_post(httpd_req_t *req)
 {
-    char buf[64];
+    char buf[96];
     int ret = httpd_req_recv(req, buf, sizeof(buf) - 1);
     
     if (ret <= 0) {

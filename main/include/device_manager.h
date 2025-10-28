@@ -2,8 +2,6 @@
 #define device_manager_H
 
 #include "esp_gatt_defs.h"
-#include "esp_gap_ble_api.h"
-#include "esp_gattc_api.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -114,14 +112,6 @@ bool device_set_brightness(int device_index, uint8_t brightness);
  * @param b blue (in hex)
  */
 bool device_set_color(int device_index, uint8_t r, uint8_t g ,uint8_t b);
-/**
- * @brief  GATTC callback
- */
-void esp_gattc_cb(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp_ble_gattc_cb_param_t *param);
-/**
- * @brief GAP callback
- */
-void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param);
 /**
  * @brief set device config 
  * @param device_name new device name 

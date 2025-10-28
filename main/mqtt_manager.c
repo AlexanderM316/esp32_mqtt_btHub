@@ -235,10 +235,9 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
 
          // Publish discovery for all discovered devices
         for (int i = 0; i < device_manager.discovered_count; i++) {
-            if (device_manager.devices[i].discovered) {
+            
                 mqtt_discovery(i);
                 vTaskDelay(pdMS_TO_TICKS(100)); 
-            }
         }
          // Subscribe to wildcard command topic so incoming commands reach MQTT_EVENT_DATA
         int sub_id = esp_mqtt_client_subscribe(s_mqtt_client, "esp32/floodlight/+/set", 1);

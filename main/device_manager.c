@@ -10,8 +10,6 @@
 #include "esp_gap_ble_api.h"
 
 
-#define CMD_MAX_LEN 12 //  max length of w_cmd
-
 static const char *NVS = "gatt";
 
 static const char *TAG = "GATT";
@@ -167,12 +165,11 @@ static void decode_notification(int device_index,
     flood_light_device_t *device = &device_manager.devices[device_index];
     bool new_state = (data[3] == 0x01);
     
-    if (device->power_state != new_state) { // only call if changed
-        device->power_state = new_state;
+    device->power_state = new_state;
         if (device_manager.device_power_state_cb) {
             device_manager.device_power_state_cb(device_index, device->power_state, device->mac_address);
         }
-    }
+    
 }
 /**
  * @brief build the w_cmd
@@ -195,9 +192,9 @@ static size_t build_cmd(uint8_t opcode, const uint8_t *payload, size_t payload_l
     w_cmd[3 + payload_len] = crc & 0xFF;                    // low byte first
     w_cmd[4 + payload_len] = (crc >> 8) & 0xFF;             // high byte
 
-    ESP_LOGI(TAG, "Built command buffer:");
-    ESP_LOG_BUFFER_HEX(TAG, w_cmd, sizeof(w_cmd));
     size_t pkt_len = 3 + payload_len + 2; // header + payload + crc
+    ESP_LOGI(TAG, "Built command buffer:");
+    ESP_LOG_BUFFER_HEX(TAG, w_cmd, sizeof(pkt_len));
     if (pkt_len > CMD_MAX_LEN) return 0;
     return pkt_len;
 }
@@ -260,12 +257,20 @@ static bool control_device(int device_index, uint8_t *data, uint16_t length)
     
     
     if (!device->connected) {
-        ESP_LOGE(TAG, "Device %d is not connected... connecting", device_index);
+        ESP_LOGI(TAG, "Device %d is not connected... connecting", device_index);
+
+        memcpy(device->pending_cmd, data, length);
+        device->pending_cmd_len = length;
+        device->has_pending = true;
+        ESP_LOGI(TAG, "Command queued for device %d", device_index);
+
         if(!connect_to_device(device_index)){
             ESP_LOGE(TAG, "Failed to connect to device, abort");
+            device->has_pending = false;
             return false;
         }
         
+        return true;     
     }
     
     if (device->char_handle == 0) {
@@ -288,11 +293,45 @@ static bool control_device(int device_index, uint8_t *data, uint16_t length)
         ESP_GATT_AUTH_REQ_NONE);
         
     if (ret == ESP_GATT_OK) {
-        ESP_LOGI(TAG, "Successfully controlled Flood Light %d", device_index);
+        ESP_LOGI(TAG, "Successfully controlled device %d", device_index);
         return true;
     } else {
         ESP_LOGE(TAG, "Failed to control device %d: %d", device_index, ret);
         return false;
+    }
+}
+/**
+ * @brief Send any pending commands for a device
+ */
+static void send_pending_commands(int device_index)
+{
+    if (device_index < 0 || device_index >= MAX_DEVICES) {
+        return;
+    }
+    
+    flood_light_device_t *device = &device_manager.devices[device_index];
+    
+    if (device->has_pending && device->connected && device->write_char_handle != 0) {
+        ESP_LOGI(TAG, "sending command:");
+        ESP_LOG_BUFFER_HEX(TAG, device->pending_cmd, device->pending_cmd_len);
+        vTaskDelay(pdMS_TO_TICKS(1000));
+        ESP_LOGI(TAG, "Sending pending command to device %d", device_index);   
+        esp_gatt_status_t ret = esp_ble_gattc_write_char(
+            device->gattc_if,
+            device->conn_id,
+            device->write_char_handle,
+            device->pending_cmd_len,
+            device->pending_cmd,
+            ESP_GATT_WRITE_TYPE_NO_RSP,
+            ESP_GATT_AUTH_REQ_NONE);
+            
+        if (ret == ESP_GATT_OK) {
+            ESP_LOGI(TAG, "Successfully sent pending command to device %d", device_index);
+            
+        } else {
+            ESP_LOGE(TAG, "Failed to send pending command to device %d: %d", device_index, ret);
+        }
+        device->has_pending = false;
     }
 }
 // Unified device event handler
@@ -426,8 +465,8 @@ static void gattc_device_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t
         } else {
             ESP_LOGW(TAG, "Device %d: write characteristic not found (UUID 0x%04x)", device_index, REMOTE_WRITE_CHAR_UUID);
         }
-
         free(char_elem_result);
+        send_pending_commands(device_index);
         break;
 
         
@@ -554,7 +593,6 @@ static void device_manager_add_device(esp_bd_addr_t mac)
                         
     memcpy(device->mac_address, mac, ESP_BD_ADDR_LEN);
     strncpy(device->name, remote_device_name, sizeof(device->name) - 1);
-    device->discovered = true;
     device->app_id = index;
     device->gattc_if = ESP_GATT_IF_NONE;
 

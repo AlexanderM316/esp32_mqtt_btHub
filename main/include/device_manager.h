@@ -7,6 +7,7 @@
 
 
 #define MAX_DEVICES 3  // max number of devices
+#define CMD_MAX_LEN 12 //  max length of w_cmd
 #define INVALID_HANDLE   0
 #define REMOTE_SERVICE_UUID        0xFFA0
 #define REMOTE_NOTIFY_CHAR_UUID    0xFFA2
@@ -26,12 +27,16 @@ typedef struct {
     char name[32];
     
     // Connection state
-    bool discovered;
     bool connected;
 
     // State reporting
-    bool power_state;       
-    
+    bool power_state;
+
+    // Command queue 
+    uint8_t pending_cmd[CMD_MAX_LEN];
+    uint16_t pending_cmd_len;
+    bool has_pending;
+
     // GATT profile state
     uint16_t gattc_if;
     uint16_t conn_id;

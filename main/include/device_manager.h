@@ -57,7 +57,7 @@ typedef struct {
     uint16_t gattc_if;
     flood_light_device_t devices[MAX_DEVICES];
     uint8_t discovered_count;
-    uint8_t conn_count;
+    uint8_t conn_count; // number of active connections
 
     // Callbacks
     device_found_cb_t device_found_cb;

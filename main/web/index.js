@@ -129,8 +129,8 @@ async function updateMetrics() {
     const freeText = document.getElementById('heap-free');
     bar.style.width = `${usedPercent}%`;
     bar.classList.remove('warn', 'crit');
-    if (usedPercent > 80) bar.classList.add('crit');
-    else if (usedPercent > 60) bar.classList.add('warn');
+    if (usedPercent > 85) bar.classList.add('crit');
+    else if (usedPercent > 70) bar.classList.add('warn');
     usedText.textContent = `${usedPercent}% (${usedBytes.toLocaleString()} bytes used)`;
     freeText.textContent = `${free.toLocaleString()} bytes free`;
     if (usedPercent > 80) {

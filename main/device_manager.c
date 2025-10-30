@@ -195,8 +195,8 @@ static size_t build_cmd(uint8_t opcode, const uint8_t *payload, size_t payload_l
     w_cmd[4 + payload_len] = (crc >> 8) & 0xFF;             // high byte
 
     size_t pkt_len = 3 + payload_len + 2; // header + payload + crc
-    ESP_LOGI(TAG, "Built command buffer:");
-    ESP_LOG_BUFFER_HEX(TAG, w_cmd, sizeof(pkt_len));
+    ESP_LOGD(TAG, "Built command buffer:");
+    ESP_LOG_BUFFER_HEX_LEVEL(TAG, w_cmd, pkt_len, ESP_LOG_DEBUG);
     if (pkt_len > CMD_MAX_LEN) return 0;
     return pkt_len;
 }
@@ -216,7 +216,7 @@ static void start_scan_timer(void)
         xTimerChangePeriod(device_manager.scan_timer, 
                           pdMS_TO_TICKS(device_manager.scan_interval * 1000), 0);
         xTimerStart(device_manager.scan_timer, 0);
-        ESP_LOGI(TAG, "Scan timer restarting scan in %d", device_manager.scan_interval);
+        ESP_LOGD(TAG, "Scan timer restarting scan in %d", device_manager.scan_interval);
     }
 }
 static void start_scanning(void)
@@ -230,7 +230,7 @@ static void start_scanning(void)
     device_manager.scanning = true;
 
     esp_ble_gap_start_scanning(device_manager.scan_duration);
-    ESP_LOGI(TAG, "Scaning started for %d s", (int)device_manager.scan_duration); 
+    ESP_LOGD(TAG, "Scaning started for %d s", (int)device_manager.scan_duration);
 }
 
 static void stop_scanning(void)
@@ -259,7 +259,7 @@ static bool control_device(int device_index, uint8_t *data, uint8_t length)
     
     
     if (!device->connected) {
-        ESP_LOGI(TAG, "Device %d is not connected... connecting", device_index);
+        ESP_LOGD(TAG, "Device %d is not connected... connecting", device_index);
 
         memcpy(device->pending_cmd, data, length);
         device->pending_cmd_len = length;
@@ -302,14 +302,6 @@ static bool control_device(int device_index, uint8_t *data, uint8_t length)
         return false;
     }
 }
-static int find_device_by_notify_handle(uint16_t handle) {
-    for (int i = 0; i < device_manager.discovered_count; i++) {
-        if (device_manager.devices[i].char_handle == handle) {
-            return i;
-        }
-    }
-    return -1;
-}
 /**
  * @brief Send any pending commands for a device
  */
@@ -322,9 +314,9 @@ static void send_pending_commands(int device_index)
     flood_light_device_t *device = &device_manager.devices[device_index];
     
     if (device->has_pending && device->connected && device->write_char_handle != 0) {
-        ESP_LOGI(TAG, "sending command:");
+        ESP_LOGD(TAG, "sending command:");
         ESP_LOG_BUFFER_HEX(TAG, device->pending_cmd, device->pending_cmd_len);
-        vTaskDelay(pdMS_TO_TICKS(1000));
+        vTaskDelay(pdMS_TO_TICKS(300));
         ESP_LOGI(TAG, "Sending pending command to device %d", device_index);   
         esp_gatt_status_t ret = esp_ble_gattc_write_char(
             device_manager.gattc_if,
@@ -451,7 +443,7 @@ static void gattc_device_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t
             (char_elem_result[0].properties & ESP_GATT_CHAR_PROP_BIT_NOTIFY)) {
             device->char_handle = char_elem_result[0].char_handle;
             esp_ble_gattc_register_for_notify(gattc_if, device->mac_address, char_elem_result[0].char_handle);
-            ESP_LOGI(TAG, "Device %d: Registered for notifications (handle 0x%08x)", device_index, device->char_handle);
+            ESP_LOGD(TAG, "Device %d: Registered for notifications (handle 0x%08x)", device_index, device->char_handle);
         }
 
         esp_bt_uuid_t write_uuid = {
@@ -472,7 +464,7 @@ static void gattc_device_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t
         if (st2 == ESP_GATT_OK && write_count > 0 &&
             (char_elem_result[0].properties & (ESP_GATT_CHAR_PROP_BIT_WRITE | ESP_GATT_CHAR_PROP_BIT_WRITE_NR))) {
             device->write_char_handle = char_elem_result[0].char_handle;
-            ESP_LOGI(TAG, "Device %d: Found write characteristic (handle 0x%08x)", device_index, device->write_char_handle);
+            ESP_LOGD(TAG, "Device %d: Found write characteristic (handle 0x%08x)", device_index, device->write_char_handle);
         } else {
             ESP_LOGW(TAG, "Device %d: write characteristic not found (UUID 0x%04x)", device_index, REMOTE_WRITE_CHAR_UUID);
         }
@@ -566,7 +558,7 @@ static void gattc_device_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t
 
     case ESP_GATTC_NOTIFY_EVT:
         ESP_LOGI(TAG, "Device %d: Received notification", device_index);
-        ESP_LOG_BUFFER_HEX(TAG, p_data->notify.value, p_data->notify.value_len);
+        ESP_LOG_BUFFER_HEX_LEVEL(TAG, p_data->notify.value, p_data->notify.value_len, ESP_LOG_DEBUG);
         decode_notification(device_index,p_data->notify.value, p_data->notify.value_len);
         break;
         
@@ -586,6 +578,19 @@ static void gattc_device_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t
     default:
         break;
     }
+}
+/**
+ * @brief find device index of the device with this char handle (needed for esp_gattc_cb)
+ * @param handle char handle
+ * @return device index (int)
+ */
+static int find_device_by_notify_handle(uint16_t handle) {
+    for (int i = 0; i < device_manager.discovered_count; i++) {
+        if (device_manager.devices[i].char_handle == handle) {
+            return i;
+        }
+    }
+    return -1;
 }
 /**
  * @brief find device index of the device with this connection id (needed for esp_gattc_cb)

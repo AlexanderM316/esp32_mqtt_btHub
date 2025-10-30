@@ -6,7 +6,7 @@
 #include "freertos/task.h"
 
 
-#define MAX_DEVICES 3  // max number of devices
+#define MAX_DEVICES 8  // max number of devices
 #define CMD_MAX_LEN 12 //  max length of w_cmd
 #define INVALID_HANDLE   0
 #define REMOTE_SERVICE_UUID        0xFFA0
@@ -34,11 +34,10 @@ typedef struct {
 
     // Command queue 
     uint8_t pending_cmd[CMD_MAX_LEN];
-    uint16_t pending_cmd_len;
+    uint8_t pending_cmd_len;
     bool has_pending;
 
     // GATT profile state
-    uint16_t gattc_if;
     uint16_t conn_id;
     uint16_t service_start_handle;
     uint16_t service_end_handle;
@@ -55,8 +54,10 @@ typedef struct {
     uint8_t scan_duration;
     TimerHandle_t scan_timer;
     bool all_devices_found;
+    uint16_t gattc_if;
     flood_light_device_t devices[MAX_DEVICES];
-    int discovered_count;
+    uint8_t discovered_count;
+    uint8_t conn_count;
 
     // Callbacks
     device_found_cb_t device_found_cb;

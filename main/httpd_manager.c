@@ -35,6 +35,7 @@ static struct {
     mqtt_config_cb_t mqtt_config_cb;
     ble_config_cb_t ble_config_cb;
     ble_get_config_cb_t ble_get_config_cb;
+    ble_get_metrics_cb_t ble_get_metrics_cb;
 } httpd_callbacks = {0};
 
 // simple hardcoded form for the captive portal
@@ -283,6 +284,11 @@ static esp_err_t login_post_handler(httpd_req_t *req) {
 static esp_err_t metrics_get_handler(httpd_req_t *req)
 {
     system_metrics_t *m = system_metrics_get();
+    uint8_t discovered_count = 0;
+    uint8_t conn_count = 0;
+    if (httpd_callbacks.ble_get_metrics_cb) {
+        httpd_callbacks.ble_get_metrics_cb( &discovered_count, &conn_count);
+    }
 
     char json[256];
     snprintf(json, sizeof(json),
@@ -290,9 +296,11 @@ static esp_err_t metrics_get_handler(httpd_req_t *req)
         "\"free_heap\":%u,"
         "\"total_heap\":%u,"
         "\"used_percent\":%.2f,"
-        "\"min_free_heap\":%u}",
+        "\"min_free_heap\":%u,"
+        "\"conn_count\":%u,"
+        "\"discovered_count\":%u}",
         m->uptime_ms, m->free_heap, m->total_heap, m->used_percent,
-        m->min_free_heap);
+        m->min_free_heap, conn_count, discovered_count);
 
     httpd_resp_set_type(req, "application/json");
     httpd_resp_send(req, json, HTTPD_RESP_USE_STRLEN);
@@ -656,10 +664,12 @@ void httpd_manager_set_callbacks(
     wifi_credentials_cb_t wifi_credentials,
     mqtt_config_cb_t mqtt_config,
     ble_config_cb_t ble_config,
-    ble_get_config_cb_t ble_get_config)
+    ble_get_config_cb_t ble_get_config,
+    ble_get_metrics_cb_t ble_get_metrics)
 {
     if (wifi_credentials) httpd_callbacks.wifi_credentials_cb = wifi_credentials;
     if (mqtt_config) httpd_callbacks.mqtt_config_cb = mqtt_config;
     if (ble_config) httpd_callbacks.ble_config_cb = ble_config;
     if (ble_get_config) httpd_callbacks.ble_get_config_cb = ble_get_config;
+    if (ble_get_metrics) httpd_callbacks.ble_get_metrics_cb = ble_get_metrics;
 }

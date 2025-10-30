@@ -27,6 +27,8 @@ document.addEventListener("DOMContentLoaded", async () => {
             document.getElementById("tx_power").value = data.tx_power ?? 0;
             document.getElementById("interval").value = data.interval ?? 0;
             document.getElementById("duration").value = data.duration ?? 0;
+            document.getElementById("discovered_count").value = data.discovered_count ?? 0;
+            document.getElementById("conn_count").value = data.conn_count ?? 0;
         }
     } catch (err) {
         console.log("No existing config found");
@@ -119,6 +121,8 @@ async function updateMetrics() {
     const usedBytes = total - free;
     document.getElementById('uptime').textContent = Math.floor(data.uptime_ms) + 's';
     document.getElementById('min_heap').textContent = data.min_free_heap.toLocaleString();
+    document.getElementById('discovered_count').textContent = data.discovered_count.toLocaleString();
+    document.getElementById('conn_count').textContent = data.conn_count.toLocaleString();
     document.getElementById('total_heap').textContent = total.toLocaleString();
     const bar = document.getElementById('heap-bar');
     const usedText = document.getElementById('heap-used');

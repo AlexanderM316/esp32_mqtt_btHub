@@ -128,5 +128,8 @@ void ble_update_config(const char *device_name, const uint8_t *tx_power, const u
  * @brief getter for current config
  */
 void ble_get_config(char *device_name, uint8_t *tx_power, uint8_t *interval, uint8_t *duration);
-
+/**
+ * @brief getter for ble metrics
+ */
+void ble_get_metrics(uint8_t *discovered_count, uint8_t *conn_count);
 #endif // device_manager_H

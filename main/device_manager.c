@@ -365,6 +365,7 @@ static void gattc_device_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t
         
         device->conn_id = p_data->open.conn_id;
         device->connected = true;
+        device_manager.conn_count++;
         
         ESP_LOGI(TAG, "Device %d: Successfully connected", device_index);
         
@@ -574,6 +575,7 @@ static void gattc_device_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t
         device->connected = false;
         device->conn_id = 0;
         device->char_handle = 0;
+        device_manager.conn_count--;
         
         // Notify callback
         if (device_manager.device_disconnected_cb) {
@@ -641,9 +643,6 @@ static void esp_gattc_cb(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp
         if (gattc_if != device_manager.gattc_if) {
             ESP_LOGW(TAG, "Event %d for unknown gatt_if %d", event, gattc_if);
             return;
-        }
-        if (device_index < 0){
-            ESP_LOGW(TAG, "Event %d for unkown device", event);
         }
         gattc_device_event_handler(event, gattc_if, param, device_index);
         
@@ -922,14 +921,13 @@ bool connect_to_device(int device_index)
         return false;
     }
     
-    ESP_LOGI(TAG, "Connecting to Flood Light %d", device_index);
+    ESP_LOGI(TAG, "Connecting to: %d", device_index);
     
     esp_err_t ret = esp_ble_gattc_open(device_manager.gattc_if, device->mac_address, BLE_ADDR_TYPE_PUBLIC, true);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to initiate connection: %d", ret);
         return false;
     }
-    
     return true;
 }
 
@@ -1080,4 +1078,10 @@ void ble_get_config(char *device_name,uint8_t *tx_power, uint8_t *interval, uint
     }
     *interval = device_manager.scan_interval;
     *duration = device_manager.scan_duration;
+}
+
+void ble_get_metrics(uint8_t *discovered_count, uint8_t *conn_count)
+{
+    *discovered_count = device_manager.discovered_count;
+    *conn_count = device_manager.conn_count;
 }

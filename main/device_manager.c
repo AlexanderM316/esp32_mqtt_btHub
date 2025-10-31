@@ -26,6 +26,7 @@ typedef enum {
     GATT_CONFIG_BLE_POWER,
     GATT_CONFIG_BLE_INTERVAL,
     GATT_CONFIG_BLE_DURATION,
+    GATT_CONFIG_MTU,
 } gatt_config_type_t;
 
 device_manager_t device_manager = {
@@ -68,18 +69,19 @@ static const esp_power_level_t power_map[8] = {
 static const char* gatt_config_key(gatt_config_type_t type)
 {
     switch (type) {
-        case GATT_CONFIG_DEVICE_NAME: return "device_name";
-        case GATT_CONFIG_BLE_POWER:   return "ble_power";
-        case GATT_CONFIG_BLE_INTERVAL: return "ble_interval";
-        case GATT_CONFIG_BLE_DURATION:   return "ble_duration";
-        default:                      return NULL;
+        case GATT_CONFIG_DEVICE_NAME:   return "device_name";
+        case GATT_CONFIG_BLE_POWER:     return "ble_power";
+        case GATT_CONFIG_BLE_INTERVAL:  return "ble_interval";
+        case GATT_CONFIG_BLE_DURATION:  return "ble_duration";
+        case GATT_CONFIG_MTU:           return "mtu";
+        default:                        return NULL;
     }
 }
 
 /**
  * @brief load gatt config from nvs 
 */
-static esp_err_t gatt_load_config(gatt_config_type_t type, void *value, size_t *len)
+static esp_err_t gatt_load_config(gatt_config_type_t type, void *val, size_t *len)
 {
     const char *key = gatt_config_key(type);
     if (!key) return ESP_ERR_INVALID_ARG;
@@ -90,15 +92,17 @@ static esp_err_t gatt_load_config(gatt_config_type_t type, void *value, size_t *
 
     switch (type) {
         case GATT_CONFIG_DEVICE_NAME:
-            err = nvs_get_str(handle, key, (char*)value, len);
+            err = nvs_get_str(handle, key, (char*)val, len);
             break;
 
         case GATT_CONFIG_BLE_POWER:
         case GATT_CONFIG_BLE_INTERVAL:
         case GATT_CONFIG_BLE_DURATION:
-            err = nvs_get_u8(handle, key, (uint8_t*)value);
+            err = nvs_get_u8(handle, key, (uint8_t*)val);
             break;
-
+        case GATT_CONFIG_MTU:
+            err = nvs_get_u16(handle, key, (uint16_t*)val);
+            break;
         default:
             err = ESP_ERR_INVALID_ARG;
     }
@@ -127,6 +131,9 @@ static esp_err_t gatt_save_config(gatt_config_type_t type, const void* val)
         case GATT_CONFIG_BLE_INTERVAL:
         case GATT_CONFIG_BLE_DURATION:
             err = nvs_set_u8(handle, key, *(uint8_t*)val); // all are uint8_t
+            break;
+        case GATT_CONFIG_MTU:
+            err = nvs_set_u16(handle, key, *(uint16_t*)val);
             break;
 
         default:
@@ -866,7 +873,15 @@ void device_manager_init(void)
         return;
     }
 
-    err = esp_ble_gatt_set_local_mtu(200);
+    uint16_t mtu = 158;
+    size_t mtu_len = sizeof(mtu);
+    err = gatt_load_config(GATT_CONFIG_MTU, &mtu, &mtu_len);
+    if (err != ESP_OK) {
+        
+        ESP_LOGW(TAG, "MTU size not found, using default");
+        gatt_save_config(GATT_CONFIG_MTU, &mtu);
+    }
+    err = esp_ble_gatt_set_local_mtu(mtu);
     if (err){
         ESP_LOGE(TAG, "MTU set failed: %x", err);
     }
@@ -875,7 +890,7 @@ void device_manager_init(void)
         "BLE_Scan_Timer",
         pdMS_TO_TICKS(device_manager.scan_interval * 1000), // convert to ms
         pdFALSE,  
-        (void *)0,
+        (void *)0,        //esp_power_level_t esp_level = power_map[tx_power];
         scan_timer_cb
     );
 
@@ -991,7 +1006,8 @@ bool device_set_color(int device_index, uint8_t r, uint8_t g, uint8_t b)
 }
 
 void ble_update_config(const char *device_name, const uint8_t *tx_power,
-                         const uint8_t *interval, const uint8_t *duration)
+                         const uint8_t *interval, const uint8_t *duration,
+                        const uint16_t *mtu)
 {
     
     if (strcmp(device_name, remote_device_name) != 0){ //if device name changed save new name
@@ -1068,10 +1084,29 @@ void ble_update_config(const char *device_name, const uint8_t *tx_power,
             return;
         }
     }
+    uint16_t old_mtu; 
+    size_t mtu_len = sizeof(old_mtu);
+   
+    err = gatt_load_config(GATT_CONFIG_MTU, &old_mtu, &mtu_len);
+    if (err != ESP_OK){
+        ESP_LOGE(TAG, "Failed to load MTU size (%s)", esp_err_to_name(err));
+        return;
+    }
+    uint8_t new_mtu = *mtu;
+    if (old_mtu != new_mtu){
+        ESP_LOGI(TAG, "Updating BLE TX power=%d", new_mtu);
+        err = gatt_save_config(GATT_CONFIG_MTU, mtu);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to save MTU size (%s)", esp_err_to_name(err));
+            return;
+        }
+        esp_ble_gatt_set_local_mtu(new_mtu); // apply
+    } 
        
 }
 
-void ble_get_config(char *device_name,uint8_t *tx_power, uint8_t *interval, uint8_t *duration)
+void ble_get_config(char *device_name,uint8_t *tx_power, uint8_t *interval, uint8_t *duration,
+                    uint16_t *mtu)
 {
     
     strncpy(device_name, remote_device_name, sizeof(remote_device_name) - 1);
@@ -1083,6 +1118,12 @@ void ble_get_config(char *device_name,uint8_t *tx_power, uint8_t *interval, uint
     }
     *interval = device_manager.scan_interval;
     *duration = device_manager.scan_duration;
+
+    err = gatt_load_config(GATT_CONFIG_MTU, mtu, NULL);
+    if (err != ESP_OK) {
+        *mtu = 0; 
+        ESP_LOGE(TAG, "Failed to load MTU size (%s)", esp_err_to_name(err));
+    }
 }
 
 void ble_get_metrics(uint8_t *discovered_count, uint8_t *conn_count)

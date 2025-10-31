@@ -27,6 +27,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             document.getElementById("tx_power").value = data.tx_power ?? 0;
             document.getElementById("interval").value = data.interval ?? 0;
             document.getElementById("duration").value = data.duration ?? 0;
+            document.getElementById("mtu").value = data.mtu ?? 0;
             document.getElementById("discovered_count").value = data.discovered_count ?? 0;
             document.getElementById("conn_count").value = data.conn_count ?? 0;
         }
@@ -62,6 +63,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             tx_power: parseInt(ble_form.tx_power.value, 10),
             interval: parseInt(ble_form.interval.value, 10),
             duration: parseInt(ble_form.duration.value, 10),
+            mtu: parseInt(ble_form.mtu.value, 10),
         };
         const res = await fetch("/ble_submit", {
             method: "POST",

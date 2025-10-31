@@ -122,12 +122,16 @@ bool device_set_color(int device_index, uint8_t r, uint8_t g ,uint8_t b);
  * @brief set device config 
  * @param device_name new device name 
  * @param tx_power ble power level
+ * @param interval time between scans in s
+ * @param druation scan duration
+ * @param mtu mtu size
  */
-void ble_update_config(const char *device_name, const uint8_t *tx_power, const uint8_t *interval, const uint8_t *duration);
+void ble_update_config(const char *device_name, const uint8_t *tx_power, const uint8_t *interval, const uint8_t *duration,
+                        const uint16_t *mtu);
 /**
  * @brief getter for current config
  */
-void ble_get_config(char *device_name, uint8_t *tx_power, uint8_t *interval, uint8_t *duration);
+void ble_get_config(char *device_name, uint8_t *tx_power, uint8_t *interval, uint8_t *duration, uint16_t *mtu);
 /**
  * @brief getter for ble metrics
  */

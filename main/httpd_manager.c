@@ -330,8 +330,9 @@ static esp_err_t index_json_handler(httpd_req_t *req)
     uint8_t tx_power = 0;
     uint8_t interval= 0;
     uint8_t duration = 0;
+    uint16_t mtu = 0;
     if (httpd_callbacks.ble_get_config_cb) {
-        httpd_callbacks.ble_get_config_cb( device_name, &tx_power, &interval, &duration);
+        httpd_callbacks.ble_get_config_cb( device_name, &tx_power, &interval, &duration, &mtu);
     }
 
     char resp[512];
@@ -343,12 +344,14 @@ static esp_err_t index_json_handler(httpd_req_t *req)
             "\"device_name\":\"%s\","
             "\"tx_power\":%d,"
             "\"interval\":%d,"
-            "\"duration\":%d"
+            "\"duration\":%d,"
+            "\"mtu\":%d"
         "}",
         device_name,
         (uint8_t)tx_power,
         (uint8_t)interval,
-        (uint8_t)duration
+        (uint8_t)duration,
+        (uint16_t)mtu
     );
 
     if (len < 0 || len >= sizeof(resp)) {
@@ -480,7 +483,7 @@ static esp_err_t mqtt_submit_post(httpd_req_t *req)
  */ 
 static esp_err_t ble_submit_post(httpd_req_t *req)
 {
-    char buf[96];
+    char buf[128];
     int ret = httpd_req_recv(req, buf, sizeof(buf) - 1);
     
     if (ret <= 0) {
@@ -498,10 +501,12 @@ static esp_err_t ble_submit_post(httpd_req_t *req)
     uint8_t tx_power = (uint8_t)cJSON_GetNumberValue(cJSON_GetObjectItem(json, "tx_power"));
     uint8_t interval = (uint8_t)cJSON_GetNumberValue(cJSON_GetObjectItem(json, "interval"));
     uint8_t duration = (uint8_t)cJSON_GetNumberValue(cJSON_GetObjectItem(json, "duration"));
+    uint16_t mtu = (uint16_t)cJSON_GetNumberValue(cJSON_GetObjectItem(json, "mtu"));
 
-    ESP_LOGI(TAG, "ble config received: device_name=%s, tx_power=%d, interval=%d, duration=%d", ble_name, (int)tx_power, (int)interval, (int)duration);
+    ESP_LOGI(TAG, "ble config received: device_name=%s, tx_power=%d, interval=%d, duration=%d, mtu=%d", ble_name, (int)tx_power, 
+                (int)interval, (int)duration, (int)mtu);
 
-    httpd_callbacks.ble_config_cb( ble_name ? ble_name : "",&tx_power, &interval, &duration);
+    httpd_callbacks.ble_config_cb( ble_name ? ble_name : "",&tx_power, &interval, &duration, &mtu);
 
     cJSON_Delete(json);
 

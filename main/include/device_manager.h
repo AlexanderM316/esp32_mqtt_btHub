@@ -49,13 +49,16 @@ typedef struct {
 } flood_light_device_t;
 
 typedef struct {
+    bool by_name; //filter by name?
     bool scanning;
     uint8_t scan_interval;
     uint8_t scan_duration;
-    TimerHandle_t scan_timer;
-    bool all_devices_found;
+    TimerHandle_t scan_timer;  
     uint16_t gattc_if;
     flood_light_device_t devices[MAX_DEVICES];
+
+    // connection tracking
+    bool all_devices_found;
     uint8_t discovered_count;
     uint8_t conn_count; // number of active connections
 
@@ -127,11 +130,11 @@ bool device_set_color(int device_index, uint8_t r, uint8_t g ,uint8_t b);
  * @param mtu mtu size
  */
 void ble_update_config(const char *device_name, const uint8_t *tx_power, const uint8_t *interval, const uint8_t *duration,
-                        const uint16_t *mtu);
+                        const uint16_t *mtu, const bool *by_name);
 /**
  * @brief getter for current config
  */
-void ble_get_config(char *device_name, uint8_t *tx_power, uint8_t *interval, uint8_t *duration, uint16_t *mtu);
+void ble_get_config(char *device_name, uint8_t *tx_power, uint8_t *interval, uint8_t *duration, uint16_t *mtu, bool *by_name);
 /**
  * @brief getter for ble metrics
  */

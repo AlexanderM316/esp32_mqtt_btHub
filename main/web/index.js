@@ -17,6 +17,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     const mqtt_status = document.getElementById("mqtt-status");
     const ble_form = document.getElementById("ble-form");
     const ble_status = document.getElementById("ble-status");
+    const deviceNameInput = document.getElementById("device_name");
+    const byNameCb = document.getElementById("by_name");
     const login_form = document.getElementById("set-login-form");
     const login_status = document.getElementById("set-login-status");
     try {
@@ -30,6 +32,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             document.getElementById("mtu").value = data.mtu ?? 0;
             document.getElementById("discovered_count").value = data.discovered_count ?? 0;
             document.getElementById("conn_count").value = data.conn_count ?? 0;
+            document.getElementById("by_name").checked = data.by_name ?? false;
         }
     } catch (err) {
         console.log("No existing config found");
@@ -56,6 +59,10 @@ document.addEventListener("DOMContentLoaded", async () => {
             mqtt_status.style.color = "red";
         }
     });
+    deviceNameInput.disabled = !byNameCb.checked;
+    byNameCb.addEventListener('change', () => {
+        deviceNameInput.disabled = !byNameCb.checked;
+    });
     ble_form.addEventListener("submit", async (e) => {
         e.preventDefault();
         const payload = {
@@ -64,6 +71,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             interval: parseInt(ble_form.interval.value, 10),
             duration: parseInt(ble_form.duration.value, 10),
             mtu: parseInt(ble_form.mtu.value, 10),
+            by_name: ble_form.by_name.checked,
         };
         const res = await fetch("/ble_submit", {
             method: "POST",

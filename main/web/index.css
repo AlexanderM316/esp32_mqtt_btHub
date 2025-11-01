@@ -57,10 +57,20 @@ label {
 }
 input[type="text"],select,
 input[type="password"] {
-    width: 71%;
+    width: 65%;
     padding: 12px;
     margin-left: auto;
-    padding: 12px;
+    border: 2px solid #ddd;
+    border-radius: 6px;
+    box-sizing: border-box;
+    font-size: 16px;
+    transition: border-color 0.3s ease;
+}
+input[type="checkbox"]{
+    width: 5%;
+    height: 20px;
+    padding: 5px;
+    margin-left: 0px;
     border: 2px solid #ddd;
     border-radius: 6px;
     box-sizing: border-box;
@@ -68,6 +78,7 @@ input[type="password"] {
     transition: border-color 0.3s ease;
 }
 input[type="text"]:focus,select:focus,
+input[type="checkbox"]:focus
 input[type="password"]:focus {
     border-color: #4CAF50;
     outline: none;

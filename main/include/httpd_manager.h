@@ -26,6 +26,10 @@ typedef void (*ble_get_config_cb_t)(char *device_name, uint8_t *tx_power, uint8_
  */
 typedef void (*ble_get_metrics_cb_t)(uint8_t *discovered_count, uint8_t *conn_count);
 /**
+ * @brief Getter callback for BLE devices
+ */
+typedef void (*ble_get_devices_cb_t)(uint8_t *indexes,const char **names, uint8_t *macs, bool *connected);
+/**
  * @brief Start the HTTP server.
  * @param captive_portal  true for AP/captive portal mode
  */
@@ -38,5 +42,6 @@ void httpd_manager_set_callbacks(
     mqtt_config_cb_t mqtt_config,
     ble_config_cb_t ble_config,
     ble_get_config_cb_t ble_get_config,
-    ble_get_metrics_cb_t ble_get_metrics);
+    ble_get_metrics_cb_t ble_get_metrics,
+    ble_get_devices_cb_t ble_get_devices);
 #endif //httpd_manager_H

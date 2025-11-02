@@ -36,6 +36,7 @@ static struct {
     ble_config_cb_t ble_config_cb;
     ble_get_config_cb_t ble_get_config_cb;
     ble_get_metrics_cb_t ble_get_metrics_cb;
+    ble_get_devices_cb_t ble_get_devices_cb;
 } httpd_callbacks = {0};
 
 // simple hardcoded form for the captive portal
@@ -284,23 +285,59 @@ static esp_err_t login_post_handler(httpd_req_t *req) {
 static esp_err_t metrics_get_handler(httpd_req_t *req)
 {
     system_metrics_t *m = system_metrics_get();
-    uint8_t discovered_count = 0;
-    uint8_t conn_count = 0;
+    uint8_t discovered_count = 0U;
+    uint8_t conn_count = 0U;
+
     if (httpd_callbacks.ble_get_metrics_cb) {
         httpd_callbacks.ble_get_metrics_cb( &discovered_count, &conn_count);
     }
 
-    char json[256];
-    snprintf(json, sizeof(json),
+    uint8_t indexes[discovered_count];
+    const char *names[discovered_count];
+    uint8_t macs[discovered_count * 6];
+    bool connected[discovered_count];
+
+    if (httpd_callbacks.ble_get_devices_cb){
+        httpd_callbacks.ble_get_devices_cb( indexes, names, macs, connected);
+    }
+
+    char json[1024];
+    int written = snprintf(json, sizeof(json),
         "{\"uptime_ms\":%lu,"
         "\"free_heap\":%u,"
         "\"total_heap\":%u,"
         "\"used_percent\":%.2f,"
         "\"min_free_heap\":%u,"
         "\"conn_count\":%u,"
-        "\"discovered_count\":%u}",
+        "\"discovered_count\":%u,"
+        "\"devices\":[",
         m->uptime_ms, m->free_heap, m->total_heap, m->used_percent,
         m->min_free_heap, conn_count, discovered_count);
+
+         for (uint8_t i = 0U; i < discovered_count; ++i) {
+        int len = snprintf(json + written, sizeof(json) - (size_t)written,
+            "{\"index\":%u,"
+            "\"name\":\"%s\","
+            "\"mac\":\"%02X:%02X:%02X:%02X:%02X:%02X\","
+            "\"connected\":%s}%s",
+            indexes[i],
+            names[i] != NULL ? names[i] : "",
+            macs[i*6 + 0], macs[i*6 + 1], macs[i*6 + 2],
+            macs[i*6 + 3], macs[i*6 + 4], macs[i*6 + 5],
+            connected[i] ? "\"Connected\"" : "\"Disconnected\"",
+            (i + 1U < discovered_count) ? "," : "");
+
+        if (len < 0) {
+            break; 
+        }
+        written += len;
+        if ((size_t)written >= sizeof(json)) {
+            break;
+        }
+    }
+    if ((size_t)written < sizeof(json)) {
+        (void)snprintf(json + written, sizeof(json) - (size_t)written, "]}");
+    }
 
     httpd_resp_set_type(req, "application/json");
     httpd_resp_send(req, json, HTTPD_RESP_USE_STRLEN);
@@ -674,11 +711,13 @@ void httpd_manager_set_callbacks(
     mqtt_config_cb_t mqtt_config,
     ble_config_cb_t ble_config,
     ble_get_config_cb_t ble_get_config,
-    ble_get_metrics_cb_t ble_get_metrics)
+    ble_get_metrics_cb_t ble_get_metrics,
+    ble_get_devices_cb_t ble_get_devices)
 {
     if (wifi_credentials) httpd_callbacks.wifi_credentials_cb = wifi_credentials;
     if (mqtt_config) httpd_callbacks.mqtt_config_cb = mqtt_config;
     if (ble_config) httpd_callbacks.ble_config_cb = ble_config;
     if (ble_get_config) httpd_callbacks.ble_get_config_cb = ble_get_config;
     if (ble_get_metrics) httpd_callbacks.ble_get_metrics_cb = ble_get_metrics;
+    if (ble_get_devices) httpd_callbacks.ble_get_devices_cb = ble_get_devices;
 }

@@ -153,6 +153,13 @@ async function updateMetrics() {
       freeText.style.transform = 'translateY(-50%)';
       freeText.style.color = '#333';
     }
+    const table = document.getElementById('devices-table-body');
+    table.innerHTML = '';
+    for (const dev of data.devices) {
+      const row = document.createElement('tr');
+      row.innerHTML = `<td>${dev.index}</td><td>${dev.name}</td><td>${dev.mac}</td><td>${dev.connected}</td>`;
+      table.appendChild(row);
+    }
   } catch (err) {
     console.error('Failed to fetch metrics:', err);
   }

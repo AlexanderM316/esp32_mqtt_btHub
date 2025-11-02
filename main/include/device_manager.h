@@ -45,7 +45,7 @@ typedef struct {
     uint16_t write_char_handle;  
 
     // App ID (index-based)
-    uint16_t app_id;
+    uint8_t app_id;
 } flood_light_device_t;
 
 typedef struct {
@@ -136,7 +136,11 @@ void ble_update_config(const char *device_name, const uint8_t *tx_power, const u
  */
 void ble_get_config(char *device_name, uint8_t *tx_power, uint8_t *interval, uint8_t *duration, uint16_t *mtu, bool *by_name);
 /**
- * @brief getter for ble metrics
+ * @brief getter for general ble metrics
  */
 void ble_get_metrics(uint8_t *discovered_count, uint8_t *conn_count);
+/**
+ * @brief getter for ble devices
+ */
+void ble_get_devices(uint8_t *indexes,const char **names, uint8_t *macs, bool *connected);
 #endif // device_manager_H

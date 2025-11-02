@@ -819,6 +819,8 @@ static void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *par
 
 void device_manager_init(void)
 {
+    ESP_ERROR_CHECK(esp_bt_controller_mem_release(ESP_BT_MODE_CLASSIC_BT));
+
     esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
     esp_err_t err = esp_bt_controller_init(&bt_cfg);
     if (err) {
@@ -1220,4 +1222,19 @@ void ble_get_metrics(uint8_t *discovered_count, uint8_t *conn_count)
 {
     *discovered_count = device_manager.discovered_count;
     *conn_count = device_manager.conn_count;
+}
+
+void ble_get_devices(uint8_t *indexes,const char **names, uint8_t *macs, bool *connected)
+{
+
+    for (int i = 0; i < device_manager.discovered_count; i++){
+
+        indexes[i] = device_manager.devices[i].app_id;
+        names[i] = device_manager.devices[i].name;
+
+        for (int j = 0; j < 6; j++) {
+            macs[i * 6 + j] = device_manager.devices[i].mac_address[j];
+        }
+        connected[i] = device_manager.devices[i].connected;
+    } 
 }

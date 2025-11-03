@@ -13,6 +13,14 @@ static const char *TAG = "MQTT";
 static esp_mqtt_client_handle_t s_mqtt_client = NULL;
 static char mqtt_prefix[32] = {0}; // mqtt discovery prefix
 
+static struct {
+    device_set_power_cb_t device_set_power_cb;
+    device_set_brightness_cb_t device_set_brightness_cb;
+    device_set_color_cb_t device_set_color_cb;
+    ble_get_metrics_cb_t ble_get_metrics_cb;
+    ble_get_devices_cb_t ble_get_devices_cb;
+} mqtt_callbacks = {0};
+
 /**
  * @brief load mqtt config from nvs 
 */
@@ -57,7 +65,7 @@ static esp_err_t mqtt_save_config(const char* broker, const char* prefix, const 
     return ESP_OK;
 }
 
-static void mqtt_discovery(int device_index)
+static void mqtt_discovery(const uint8_t *mac, const char *name)
 {
     if (s_mqtt_client == NULL) {
         ESP_LOGE(TAG, "client not initialized");
@@ -69,14 +77,11 @@ static void mqtt_discovery(int device_index)
     snprintf(esp_mac_str, sizeof(esp_mac_str),
              "%02X%02X%02X%02X%02X%02X",
              esp_mac[0], esp_mac[1], esp_mac[2], esp_mac[3], esp_mac[4], esp_mac[5]);
-
-    flood_light_device_t *device = &device_manager.devices[device_index];
     
     // Convert MAC address to string for unique ID
     char dev_mac_str[13]; // device mac
     snprintf(dev_mac_str, sizeof(dev_mac_str), "%02X%02X%02X%02X%02X%02X", // Remove colons for cleaner ID
-             device->mac_address[0], device->mac_address[1], device->mac_address[2],
-             device->mac_address[3], device->mac_address[4], device->mac_address[5]);
+             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 
     char discovery_topic[80];
     snprintf(discovery_topic, sizeof(discovery_topic), 
@@ -111,7 +116,7 @@ static void mqtt_discovery(int device_index)
         dev_mac_str, dev_mac_str, dev_mac_str, dev_mac_str, esp_mac_str); // 5 arguments
 
     int msg_id = esp_mqtt_client_publish(s_mqtt_client, discovery_topic, discovery_payload, 0, 1, 1);
-    ESP_LOGI(TAG, "Published discovery for device %d, msg_id=%d", device_index, msg_id);
+    ESP_LOGI(TAG, "Published discovery for device %s, msg_id=%d", dev_mac_str, msg_id);
     ESP_LOGI(TAG, "Topic: %s", discovery_topic);
 }
 
@@ -143,7 +148,7 @@ static void mqtt_handle_command(const char* topic, int topic_len, const char* da
     mac_fragment[mac_len] = '\0';
 
     // normalize MAC into bytes
-    esp_bd_addr_t mac_addr = {0};
+    uint8_t mac_addr[6] = {0};
     bool mac_ok = false;
 
     // Try colon-separated parse first
@@ -171,38 +176,23 @@ static void mqtt_handle_command(const char* topic, int topic_len, const char* da
         return;
     }
 
-    int device_index = find_device_by_mac(mac_addr);
-    if (device_index < 0) {
-        ESP_LOGW(TAG, "No device match for MAC in topic");
-        return;
-    }
-
     cJSON *json = cJSON_Parse(data_str);
     if (!json) {
         ESP_LOGW(TAG, "Failed to parse JSON payload: %s", data_str);
         return;
     }
 
-    cJSON *state_item = cJSON_GetObjectItem(json, "state");
-    if (state_item && cJSON_IsString(state_item)) {
-        if (strcasecmp(state_item->valuestring, "ON") == 0 || strcmp(state_item->valuestring, "1") == 0) {
-            ESP_LOGI(TAG, "Turn ON device %d", device_index);
-            device_set_on(device_index);
-        } else if (strcasecmp(state_item->valuestring, "OFF") == 0 || strcmp(state_item->valuestring, "0") == 0) {
-            ESP_LOGI(TAG, "Turn OFF device %d", device_index);
-            device_set_off(device_index);
-        }
-    }
-
     cJSON *brightness_item = cJSON_GetObjectItem(json, "brightness");
+    cJSON *state_item = cJSON_GetObjectItem(json, "state");
+    cJSON *color_item = cJSON_GetObjectItem(json, "color");
+    
     if (brightness_item && cJSON_IsNumber(brightness_item)) {
         uint8_t brightness = brightness_item->valueint;
-        ESP_LOGI(TAG, "Set brightness %d for device %d", brightness, device_index);
-        device_set_brightness(device_index, (uint8_t)brightness);
-    }
-
-    cJSON *color_item = cJSON_GetObjectItem(json, "color");
-    if (color_item && cJSON_IsObject(color_item)) {
+        ESP_LOGI(TAG, "Set brightness %d for device %s", brightness, mac_fragment);
+        if (mqtt_callbacks.device_set_brightness_cb){
+            mqtt_callbacks.device_set_brightness_cb(mac_addr, (uint8_t)brightness);
+        }
+    } else if (color_item && cJSON_IsObject(color_item)) {
         // Extract RGB values from the color object
         cJSON *r_item = cJSON_GetObjectItem(color_item, "r");
         cJSON *g_item = cJSON_GetObjectItem(color_item, "g");
@@ -216,11 +206,19 @@ static void mqtt_handle_command(const char* topic, int topic_len, const char* da
             uint8_t green = (uint8_t)g_item->valueint;
             uint8_t blue = (uint8_t)b_item->valueint;
         
-            ESP_LOGI(TAG, "Set color R:%d G:%d B:%d for device %d", red, green, blue, device_index);
-            device_set_color(device_index, (uint8_t)red, (uint8_t)green, (uint8_t)blue);
+            ESP_LOGI(TAG, "Set color R:%d G:%d B:%d for device %s", red, green, blue, mac_fragment);
+            if (mqtt_callbacks.device_set_color_cb){
+                mqtt_callbacks.device_set_color_cb(mac_addr, (uint8_t)red, (uint8_t)green, (uint8_t)blue);
+            }
+        }
+    } else if (state_item && cJSON_IsString(state_item)) {
+        bool power_on = (strcasecmp(state_item->valuestring, "ON") == 0 ||
+                         strcmp(state_item->valuestring, "1") == 0);
+        ESP_LOGI(TAG, "Set power=%s for MAC=%s", power_on ? "ON" : "OFF", mac_fragment);
+        if (mqtt_callbacks.device_set_power_cb){
+            mqtt_callbacks.device_set_power_cb(mac_addr, power_on);
         }
     }
-
     cJSON_Delete(json);
 }
 
@@ -230,14 +228,29 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
     esp_mqtt_event_handle_t event = event_data;
     
     switch ((esp_mqtt_event_id_t)event_id) {
-    case MQTT_EVENT_CONNECTED:
+    case MQTT_EVENT_CONNECTED:{
         ESP_LOGI(TAG, "MQTT_EVENT_CONNECTED");
 
+        uint8_t discovered_count = 0U;
+
+        if (mqtt_callbacks.ble_get_metrics_cb) {
+            mqtt_callbacks.ble_get_metrics_cb(&discovered_count, NULL);
+        }
+        
+        if (discovered_count == 0) break; // no devices to process
+
+        const char *names[discovered_count];       // array of string pointers
+        uint8_t macs[discovered_count * 6]; 
+
+        if (mqtt_callbacks.ble_get_devices_cb) {
+            mqtt_callbacks.ble_get_devices_cb(NULL, names, macs, NULL);
+        }
+
          // Publish discovery for all discovered devices
-        for (int i = 0; i < device_manager.discovered_count; i++) {
-            
-                mqtt_discovery(i);
-                vTaskDelay(pdMS_TO_TICKS(100)); 
+        for (int i = 0; i < discovered_count; i++) {
+
+            mqtt_discovery(&macs[i*6], names[i] );
+            vTaskDelay(pdMS_TO_TICKS(100)); 
         }
          // Subscribe to wildcard command topic so incoming commands reach MQTT_EVENT_DATA
         int sub_id = esp_mqtt_client_subscribe(s_mqtt_client, "esp32/floodlight/+/set", 1);
@@ -245,8 +258,8 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
 
         int sub_id2 = esp_mqtt_client_subscribe(s_mqtt_client, "esp32/floodlight/+/brightness/set", 1);
         ESP_LOGI(TAG, "Subscribed to brightness wildcard, sub_id=%d", sub_id2);
-
         break;
+    }   
     case MQTT_EVENT_DISCONNECTED:
         ESP_LOGI(TAG, "EVENT_DISCONNECTED");
         break;
@@ -314,12 +327,12 @@ void mqtt_start(void)
     ESP_LOGI(TAG, "MQTT client started with broker %s, prefix %s", broker, mqtt_prefix);
 }
 
-void mqtt_device_found(int index, esp_bd_addr_t mac) {
-    ESP_LOGI("MQTT", "Discovered device %d, sending discovery message", index);
-    mqtt_discovery(index);
+void mqtt_device_found(const uint8_t *mac, const char *name) 
+{ 
+    mqtt_discovery(mac , name); 
 }
 
-void mqtt_device_state(int index, bool power_state, esp_bd_addr_t mac){
+void mqtt_device_state(bool power_state, uint8_t *mac){
     if (!s_mqtt_client) {
         ESP_LOGW(TAG, "MQTT client not ready; skipping publish");
         return;
@@ -350,10 +363,10 @@ void mqtt_device_state(int index, bool power_state, esp_bd_addr_t mac){
     );
 
     if (msg_id >= 0) {
-        ESP_LOGI(TAG, "Published state of device %d (%s): %s",
-                 index, mac_str, payload);
+        ESP_LOGI(TAG, "Published state of device (%s): %s",
+                  mac_str, payload);
     } else {
-        ESP_LOGW(TAG, "Failed to publish state for device %d", index);
+        ESP_LOGW(TAG, "Failed to publish state for device %s", mac_str);
     }
 }
 
@@ -374,4 +387,14 @@ void mqtt_update_config(const char *broker, const char *prefix, const char *user
         s_mqtt_client = NULL;
     }
     mqtt_start();
+}
+void mqtt_set_callbacks(device_set_power_cb_t device_set_power, device_set_brightness_cb_t device_set_brightness,
+                        device_set_color_cb_t device_set_color, ble_get_metrics_cb_t ble_get_metrics,
+                        ble_get_devices_cb_t ble_get_devices)
+{
+    if(device_set_power) mqtt_callbacks.device_set_power_cb = device_set_power;
+    if(device_set_brightness) mqtt_callbacks.device_set_brightness_cb = device_set_brightness;
+    if(device_set_color) mqtt_callbacks.device_set_color_cb = device_set_color;
+    if(ble_get_metrics) mqtt_callbacks.ble_get_metrics_cb = ble_get_metrics;
+    if(ble_get_devices) mqtt_callbacks.ble_get_devices_cb = ble_get_devices;
 }

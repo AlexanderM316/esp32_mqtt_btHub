@@ -14,11 +14,11 @@
 #define REMOTE_WRITE_CHAR_UUID     0xFFA1 
 
 // Callback function types
-typedef void (*device_found_cb_t)(int index, esp_bd_addr_t mac);
+typedef void (*device_found_cb_t)(const uint8_t *mac, const char *name);
 typedef void (*all_devices_found_cb_t)(void);
 typedef void (*device_connected_cb_t)(int device_index);
 typedef void (*device_disconnected_cb_t)(int device_index);
-typedef void (*device_power_state_cb_t)(int device_index, bool power_state, esp_bd_addr_t mac);
+typedef void (*device_power_state_cb_t)(bool power_state, uint8_t *mac);
 
 /* Single structure for each device - combines device and profile */
 typedef struct {
@@ -87,40 +87,30 @@ void device_manager_set_callbacks(
     device_power_state_cb_t device_power_state);
 
 /**
- * @brief find app id of device with this mac
- * @param device_index mac address
- * @return device app id (int)
- */ 
-int find_device_by_mac(esp_bd_addr_t mac_addr);
-/**
  * @brief connect to device
  * @param device_index device app id
  */
 bool connect_to_device(int device_index);
 /**
- * @brief turn on bluetooth light
- * @param device_index device app id
+ * @brief turn ble device on/off
+ * @param mac address of device
+ * @param power on/off
  */
-bool device_set_on(int device_index);
-/**
- * @brief turn off bluetooth light
- * @param device_index device app id
- */
-bool device_set_off(int device_index);
+bool device_set_power(const uint8_t *mac, const bool power);
 /**
  * @brief device_set_brightness set brightness of bluetooth light
- * @param device_index device app id
+ * @param mac address of device
  * @param brightness brightness (in hex)
  */
-bool device_set_brightness(int device_index, uint8_t brightness);
+bool device_set_brightness(const uint8_t *mac, uint8_t brightness);
 /**
  * @brief set color of bluetooth light
- * @param device_index device app id
+ * @param mac address of device
  * @param r red (in hex)
  * @param g greeb (in hex)
  * @param b blue (in hex)
  */
-bool device_set_color(int device_index, uint8_t r, uint8_t g ,uint8_t b);
+bool device_set_color(const uint8_t *mac, uint8_t r, uint8_t g ,uint8_t b);
 /**
  * @brief set device config 
  * @param device_name new device name 

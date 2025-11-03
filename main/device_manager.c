@@ -192,7 +192,7 @@ static void decode_notification(int device_index,
     
     device->power_state = new_state;
         if (device_manager.device_power_state_cb) {
-            device_manager.device_power_state_cb(device_index, device->power_state, device->mac_address);
+            device_manager.device_power_state_cb(device->power_state, device->mac_address);
         }
     
 }
@@ -603,6 +603,20 @@ static void gattc_device_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t
     }
 }
 /**
+ * @brief find app id of device with this mac
+ * @param mac_addr mac address
+ * @return device app id (int)
+ */ 
+static int find_device_by_mac(const esp_bd_addr_t mac_addr)
+{
+    for (int i = 0; i < device_manager.discovered_count; i++) {
+        if (memcmp(device_manager.devices[i].mac_address, mac_addr, ESP_BD_ADDR_LEN) == 0) {
+            return i;
+        }
+    }
+    return -1; // Not found
+}
+/**
  * @brief find device index of the device with this char handle (needed for esp_gattc_cb)
  * @param handle char handle
  * @return device index (int)
@@ -708,7 +722,7 @@ static void device_manager_add_device(esp_bd_addr_t mac, const char *name)
 
     // Notify callback
     if (device_manager.device_found_cb) {
-        device_manager.device_found_cb(index, mac);
+        device_manager.device_found_cb(device->mac_address , device->name);
     }
 
     // Check if we found all devices
@@ -957,16 +971,6 @@ void device_manager_set_callbacks(
     if (device_power_state) device_manager.device_power_state_cb = device_power_state;
 }
 
-int find_device_by_mac(esp_bd_addr_t mac_addr)
-{
-    for (int i = 0; i < device_manager.discovered_count; i++) {
-        if (memcmp(device_manager.devices[i].mac_address, mac_addr, ESP_BD_ADDR_LEN) == 0) {
-            return i;
-        }
-    }
-    return -1; // Not found
-}
-
 bool connect_to_device(int device_index)
 {
     if (device_index < 0 || device_index >= device_manager.discovered_count) {
@@ -1019,34 +1023,29 @@ bool disconnect_from_device(int device_index)
     return true;
 }
 
-bool device_set_on(int device_index)
+bool device_set_power(const uint8_t *mac, const bool power)
 {
-    uint8_t payload = 0x01;
+    uint8_t payload = power ? 0x01 : 0x00;
     size_t cmd_len = build_cmd(0x11, &payload, 1);
     if (!cmd_len) return false;
+    int device_index = find_device_by_mac(mac);
     return control_device(device_index, w_cmd, cmd_len);
 }
 
-bool device_set_off(int device_index)
-{
-    uint8_t payload = 0x00;
-    size_t cmd_len = build_cmd(0x11, &payload, 1);
-    if (!cmd_len) return false;
-    return control_device(device_index, w_cmd, cmd_len);
-}
-
-bool device_set_brightness(int device_index, uint8_t brightness)
+bool device_set_brightness(const uint8_t *mac, uint8_t brightness)
 {   
     size_t cmd_len = build_cmd(0x13, &brightness, 1);
     if (!cmd_len) return false;
+    int device_index = find_device_by_mac(mac);
     return control_device(device_index, w_cmd, cmd_len);
 }
 
-bool device_set_color(int device_index, uint8_t r, uint8_t g, uint8_t b)
+bool device_set_color(const uint8_t *mac, uint8_t r, uint8_t g, uint8_t b)
 {  
     uint8_t payload[7] = {r, g, b, r, g, b, 0x64}; 
     size_t cmd_len = build_cmd(0x17, payload, 7);
     if (!cmd_len) return false;
+    int device_index = find_device_by_mac(mac);
     return control_device(device_index, w_cmd, cmd_len);
 }
 
@@ -1220,8 +1219,13 @@ void ble_get_config(char *device_name,uint8_t *tx_power, uint8_t *interval, uint
 
 void ble_get_metrics(uint8_t *discovered_count, uint8_t *conn_count)
 {
-    *discovered_count = device_manager.discovered_count;
-    *conn_count = device_manager.conn_count;
+    if (discovered_count) {
+        *discovered_count = device_manager.discovered_count;
+    }
+
+    if (conn_count) {
+        *conn_count = device_manager.conn_count;
+    }
 }
 
 void ble_get_devices(uint8_t *indexes,const char **names, uint8_t *macs, bool *connected)
@@ -1229,12 +1233,19 @@ void ble_get_devices(uint8_t *indexes,const char **names, uint8_t *macs, bool *c
 
     for (int i = 0; i < device_manager.discovered_count; i++){
 
-        indexes[i] = device_manager.devices[i].app_id;
-        names[i] = device_manager.devices[i].name;
-
-        for (int j = 0; j < 6; j++) {
-            macs[i * 6 + j] = device_manager.devices[i].mac_address[j];
+        if (indexes) {
+            indexes[i] = device_manager.devices[i].app_id;
         }
-        connected[i] = device_manager.devices[i].connected;
+        if (names) {
+            names[i] = device_manager.devices[i].name;
+        }
+        if (macs) {
+            for (int j = 0; j < 6; j++) {
+                macs[i * 6 + j] = device_manager.devices[i].mac_address[j];
+            }
+        }
+        if (connected) {
+            connected[i] = device_manager.devices[i].connected;
+        }
     } 
 }

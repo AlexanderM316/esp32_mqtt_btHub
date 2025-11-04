@@ -8,7 +8,16 @@
 #include "esp_gatt_common_api.h"
 #include "esp_gattc_api.h"
 #include "esp_gap_ble_api.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "esp_gatt_defs.h"
 
+#define MAX_DEVICES 8  // max number of devices
+#define CMD_MAX_LEN 12 //  max length of w_cmd
+#define INVALID_HANDLE   0
+#define REMOTE_SERVICE_UUID        0xFFA0
+#define REMOTE_NOTIFY_CHAR_UUID    0xFFA2
+#define REMOTE_WRITE_CHAR_UUID     0xFFA1 
 
 static const char *NVS = "gatt";
 
@@ -17,6 +26,56 @@ static const char *TAG = "GATT";
 static uint8_t w_cmd[CMD_MAX_LEN]; // default write cmd
 
 static char remote_device_name[32] = {0}; // bluetooth device name
+
+/* Single structure for each device - combines device and profile */
+typedef struct {
+    // Device identification
+    esp_bd_addr_t mac_address;
+    char name[32];
+    
+    // Connection state
+    bool connected;
+
+    // State reporting
+    bool power_state;
+
+    // Command queue 
+    uint8_t pending_cmd[CMD_MAX_LEN];
+    uint8_t pending_cmd_len;
+    bool has_pending;
+
+    // GATT profile state
+    uint16_t conn_id;
+    uint16_t service_start_handle;
+    uint16_t service_end_handle;
+    uint16_t char_handle;
+    uint16_t write_char_handle;  
+
+    // App ID (index-based)
+    uint8_t app_id;
+} flood_light_device_t;
+
+typedef struct {
+    bool by_name; //filter by name?
+    bool scanning;
+    uint8_t scan_interval;
+    uint8_t scan_duration;
+    TimerHandle_t scan_timer;  
+    uint16_t gattc_if;
+    flood_light_device_t devices[MAX_DEVICES];
+
+    // connection tracking
+    bool all_devices_found;
+    uint8_t discovered_count;
+    uint8_t conn_count; // number of active connections
+
+    // Callbacks
+    device_found_cb_t device_found_cb;
+    all_devices_found_cb_t all_devices_found_cb;
+    device_connected_cb_t device_connected_cb;
+    device_disconnected_cb_t device_disconnected_cb;
+    device_power_state_cb_t device_power_state_cb;
+} device_manager_t;
 
 /**
  * @brief gatt config type (what are we going to set/load)

@@ -83,19 +83,19 @@ static void mqtt_discovery(const uint8_t *mac, const char *name)
     snprintf(dev_mac_str, sizeof(dev_mac_str), "%02X%02X%02X%02X%02X%02X", // Remove colons for cleaner ID
              mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 
-    char discovery_topic[80];
+    char discovery_topic[72];
     snprintf(discovery_topic, sizeof(discovery_topic), 
-             "%s/light/esp32_floodlight_%s/config", 
+             "%s/light/esp32_sub_%s/config", 
              mqtt_prefix, dev_mac_str);
 
     char discovery_payload[512];
     snprintf(discovery_payload, sizeof(discovery_payload),
         "{"
-        "\"name\":\"Flood Light %s\","
-        "\"unique_id\":\"esp32_floodlight_%s\","
+        "\"name\":\"%s %s\","
+        "\"unique_id\":\"esp32_sub_%s\","
         "\"schema\":\"json\","
-        "\"command_topic\":\"esp32/floodlight/%s/set\","
-        "\"state_topic\":\"esp32/floodlight/%s/state\","
+        "\"command_topic\":\"esp32/%s/set\","
+        "\"state_topic\":\"esp32/%s/state\","
         "\"brightness\":true,"
         "\"brightness_scale\":100,"
         "\"supported_color_modes\":[\"rgb\"],"
@@ -113,7 +113,11 @@ static void mqtt_discovery(const uint8_t *mac, const char *name)
             "\"sw_version\":\"1.0\""
         "}"
         "}",
-        dev_mac_str, dev_mac_str, dev_mac_str, dev_mac_str, esp_mac_str); // 5 arguments
+        name, dev_mac_str,
+        dev_mac_str,
+        dev_mac_str,
+        dev_mac_str,
+        esp_mac_str); // 6 arguments
 
     int msg_id = esp_mqtt_client_publish(s_mqtt_client, discovery_topic, discovery_payload, 0, 1, 1);
     ESP_LOGI(TAG, "Published discovery for device %s, msg_id=%d", dev_mac_str, msg_id);
@@ -133,7 +137,7 @@ static void mqtt_handle_command(const char* topic, int topic_len, const char* da
 
     ESP_LOGI(TAG, "Processing command: Topic=%s, Data=%s", topic_str, data_str);
 
-    const char *base = "esp32/floodlight/";
+    const char *base = "esp32/";
     const char *p = strstr(topic_str, base);
     if (!p) return;
     p += strlen(base);
@@ -185,7 +189,7 @@ static void mqtt_handle_command(const char* topic, int topic_len, const char* da
     cJSON *brightness_item = cJSON_GetObjectItem(json, "brightness");
     cJSON *state_item = cJSON_GetObjectItem(json, "state");
     cJSON *color_item = cJSON_GetObjectItem(json, "color");
-    
+
     if (brightness_item && cJSON_IsNumber(brightness_item)) {
         uint8_t brightness = brightness_item->valueint;
         ESP_LOGI(TAG, "Set brightness %d for device %s", brightness, mac_fragment);
@@ -253,10 +257,10 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
             vTaskDelay(pdMS_TO_TICKS(100)); 
         }
          // Subscribe to wildcard command topic so incoming commands reach MQTT_EVENT_DATA
-        int sub_id = esp_mqtt_client_subscribe(s_mqtt_client, "esp32/floodlight/+/set", 1);
+        int sub_id = esp_mqtt_client_subscribe(s_mqtt_client, "esp32/+/set", 1);
         ESP_LOGI(TAG, "Subscribed to commands wildcard, sub_id=%d", sub_id);
 
-        int sub_id2 = esp_mqtt_client_subscribe(s_mqtt_client, "esp32/floodlight/+/brightness/set", 1);
+        int sub_id2 = esp_mqtt_client_subscribe(s_mqtt_client, "esp32/+/brightness/set", 1);
         ESP_LOGI(TAG, "Subscribed to brightness wildcard, sub_id=%d", sub_id2);
         break;
     }   
@@ -344,7 +348,7 @@ void mqtt_device_state(bool power_state, uint8_t *mac){
 
     char topic[64];
     snprintf(topic, sizeof(topic),
-             "esp32/floodlight/%s/state", mac_str);
+             "esp32/%s/state", mac_str);
 
     char payload[64];
     snprintf(payload, sizeof(payload),

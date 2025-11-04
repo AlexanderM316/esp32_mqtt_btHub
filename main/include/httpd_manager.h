@@ -14,13 +14,13 @@ typedef void (*mqtt_config_cb_t)(const char *broker, const char *prefix, const c
 /**
  * @brief Type for ble(gatt) config save callback
  */
-typedef void (*ble_config_cb_t)(const char *device_name, const uint8_t *tx_power, const uint8_t *interval, const uint8_t *duration,
-                const uint16_t *mtu, const bool *by_name);
+typedef void (*ble_config_cb_t)(const bool *by_name, const char *device_name, const bool *by_uuid, const uint16_t *uuid,
+                                const uint8_t *tx_power, const uint8_t *interval, const uint8_t *duration, const uint16_t *mtu);
 /**
  * @brief Getter callback for BLE config
  */
-typedef void (*ble_get_config_cb_t)(char *device_name, uint8_t *tx_power, uint8_t *interval, uint8_t *duration, uint16_t *mtu,
-                bool *by_name);
+typedef void (*ble_get_config_cb_t)(bool *by_name, char *device_name, bool *by_uuid, uint16_t *uuid, 
+                                    uint8_t *tx_power, uint8_t *interval, uint8_t *duration, uint16_t *mtu);
 /**
  * @brief Getter callback for BLE metrics
  */

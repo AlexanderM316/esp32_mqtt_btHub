@@ -66,6 +66,12 @@ input[type="password"] {
     font-size: 16px;
     transition: border-color 0.3s ease;
 }
+input[type="text"]:disabled{
+    background-color: #d5d5d5;
+}
+#uuid{
+    width: 25%;
+}
 input[type="checkbox"]{
     width: 5%;
     height: 20px;
@@ -161,7 +167,7 @@ table th {
     font-weight: 600;
 }
 table tbody tr:nth-child(even) {
-    background-color: #f4f4f4;
+    background-color: #f3f3f3;
 }
 table th:nth-child(1), table td:nth-child(1){
     width: 10%; 

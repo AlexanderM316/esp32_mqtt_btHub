@@ -19,6 +19,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     const ble_status = document.getElementById("ble-status");
     const deviceNameInput = document.getElementById("device_name");
     const byNameCb = document.getElementById("by_name");
+    const uuidInput = document.getElementById("uuid");
+    const byUuidCb = document.getElementById("by_uuid");
     const login_form = document.getElementById("set-login-form");
     const login_status = document.getElementById("set-login-status");
     try {
@@ -33,6 +35,8 @@ document.addEventListener("DOMContentLoaded", async () => {
             document.getElementById("discovered_count").value = data.discovered_count ?? 0;
             document.getElementById("conn_count").value = data.conn_count ?? 0;
             document.getElementById("by_name").checked = data.by_name ?? false;
+            document.getElementById("by_uuid").checked = data.by_uuid ?? false;
+            document.getElementById("uuid").value = data.uuid ?? "";
         }
     } catch (err) {
         console.log("No existing config found");
@@ -63,6 +67,13 @@ document.addEventListener("DOMContentLoaded", async () => {
     byNameCb.addEventListener('change', () => {
         deviceNameInput.disabled = !byNameCb.checked;
     });
+    uuidInput.disabled = !byUuidCb.checked;
+    byUuidCb.addEventListener('change', () => {
+        uuidInput.disabled = !byUuidCb.checked;
+    });
+    uuidInput.addEventListener('input', () => {
+    uuidInput.value = uuidInput.value.toUpperCase();
+    });
     ble_form.addEventListener("submit", async (e) => {
         e.preventDefault();
         const payload = {
@@ -72,6 +83,8 @@ document.addEventListener("DOMContentLoaded", async () => {
             duration: parseInt(ble_form.duration.value, 10),
             mtu: parseInt(ble_form.mtu.value, 10),
             by_name: ble_form.by_name.checked,
+            by_uuid: ble_form.by_uuid.checked,
+            uuid: parseInt(ble_form.uuid.value, 16)
         };
         const res = await fetch("/ble_submit", {
             method: "POST",

@@ -51,18 +51,22 @@ bool device_set_brightness(const uint8_t *mac, uint8_t brightness);
 bool device_set_color(const uint8_t *mac, uint8_t r, uint8_t g ,uint8_t b);
 /**
  * @brief set device config 
- * @param device_name new device name 
+ * @param by_name enable filter by name?
+ * @param device_name new device name filter
+ * @param by_uuid enable filter by UUID?
+ * @param uuid new uuid filter
  * @param tx_power ble power level
  * @param interval time between scans in s
  * @param druation scan duration
  * @param mtu mtu size
  */
-void ble_update_config(const char *device_name, const uint8_t *tx_power, const uint8_t *interval, const uint8_t *duration,
-                        const uint16_t *mtu, const bool *by_name);
+void ble_update_config( const bool *by_name, const char *device_name, const bool *by_uuid, const uint16_t *uuid,
+                        const uint8_t *tx_power, const uint8_t *interval, const uint8_t *duration, const uint16_t *mtu);
 /**
  * @brief getter for current config
  */
-void ble_get_config(char *device_name, uint8_t *tx_power, uint8_t *interval, uint8_t *duration, uint16_t *mtu, bool *by_name);
+void ble_get_config(bool *by_name, char *device_name, bool *by_uuid, uint16_t *uuid, 
+                    uint8_t *tx_power, uint8_t *interval, uint8_t *duration, uint16_t *mtu);
 /**
  * @brief getter for general ble metrics
  */

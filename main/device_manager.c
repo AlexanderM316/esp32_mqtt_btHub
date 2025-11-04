@@ -15,7 +15,6 @@
 #define MAX_DEVICES 8  // max number of devices
 #define CMD_MAX_LEN 12 //  max length of w_cmd
 #define INVALID_HANDLE   0
-#define REMOTE_SERVICE_UUID        0xFFA0
 #define REMOTE_NOTIFY_CHAR_UUID    0xFFA2
 #define REMOTE_WRITE_CHAR_UUID     0xFFA1 
 
@@ -24,8 +23,6 @@ static const char *NVS = "gatt";
 static const char *TAG = "GATT";
 
 static uint8_t w_cmd[CMD_MAX_LEN]; // default write cmd
-
-static char remote_device_name[32] = {0}; // bluetooth device name
 
 /* Single structure for each device - combines device and profile */
 typedef struct {
@@ -55,8 +52,11 @@ typedef struct {
     uint8_t app_id;
 } flood_light_device_t;
 
-typedef struct {
+static struct {
     bool by_name; //filter by name?
+    char remote_device_name[32];
+    bool by_uuid;
+    uint16_t remote_service_uuid;
     bool scanning;
     uint8_t scan_interval;
     uint8_t scan_duration;
@@ -75,22 +75,11 @@ typedef struct {
     device_connected_cb_t device_connected_cb;
     device_disconnected_cb_t device_disconnected_cb;
     device_power_state_cb_t device_power_state_cb;
-} device_manager_t;
-
-/**
- * @brief gatt config type (what are we going to set/load)
- */
-typedef enum {
-    GATT_CONFIG_DEVICE_NAME,
-    GATT_CONFIG_BY_NAME,
-    GATT_CONFIG_BLE_POWER,
-    GATT_CONFIG_BLE_INTERVAL,
-    GATT_CONFIG_BLE_DURATION,
-    GATT_CONFIG_MTU,
-} gatt_config_type_t;
-
-device_manager_t device_manager = {
+} device_manager = {
     .by_name = false,
+    .remote_device_name = {0},
+    .by_uuid = false,
+    .remote_service_uuid = 0,
     .scanning = false,
     .scan_interval = 5,  // in s
     .scan_duration = 15,
@@ -104,6 +93,20 @@ device_manager_t device_manager = {
     .device_connected_cb = NULL,
     .device_disconnected_cb = NULL
 };
+
+/**
+ * @brief gatt config type (what are we going to set/load)
+ */
+typedef enum {
+    GATT_CONFIG_DEVICE_NAME,
+    GATT_CONFIG_BY_NAME,
+    GATT_CONFIG_BLE_POWER,
+    GATT_CONFIG_BLE_INTERVAL,
+    GATT_CONFIG_BLE_DURATION,
+    GATT_CONFIG_MTU,
+    GATT_CONFIG_BY_UUID,
+    GATT_CONFIG_SERVICE_UUID,
+} gatt_config_type_t;
 
 static esp_bt_uuid_t notify_descr_uuid = {
     .len = ESP_UUID_LEN_16,
@@ -136,6 +139,8 @@ static const char* gatt_config_key(gatt_config_type_t type)
         case GATT_CONFIG_BLE_INTERVAL:  return "ble_interval";
         case GATT_CONFIG_BLE_DURATION:  return "ble_duration";
         case GATT_CONFIG_MTU:           return "mtu";
+        case GATT_CONFIG_BY_UUID:       return "by_uuid";
+        case GATT_CONFIG_SERVICE_UUID:  return "service_uuid";
         default:                        return NULL;
     }
 }
@@ -153,7 +158,8 @@ static esp_err_t gatt_load_config(gatt_config_type_t type, void *val, size_t *le
     if (err != ESP_OK) return err;
 
     switch (type) {
-         case GATT_CONFIG_BY_NAME:
+        case GATT_CONFIG_BY_NAME:
+        case GATT_CONFIG_BY_UUID:
             // NVS doesn't support bool so load as uint8_t (0 = false, 1 = true) 
             uint8_t temp_u8;
             err = nvs_get_u8(handle, key, &temp_u8);
@@ -171,6 +177,7 @@ static esp_err_t gatt_load_config(gatt_config_type_t type, void *val, size_t *le
             err = nvs_get_u8(handle, key, (uint8_t*)val);
             break;
         case GATT_CONFIG_MTU:
+        case GATT_CONFIG_SERVICE_UUID:
             err = nvs_get_u16(handle, key, (uint16_t*)val);
             break;
         default:
@@ -194,6 +201,7 @@ static esp_err_t gatt_save_config(gatt_config_type_t type, const void* val)
 
     switch (type) {
         case GATT_CONFIG_BY_NAME:
+        case GATT_CONFIG_BY_UUID:
             // NVS doesn't support bool so save as uint8_t (0 = false, 1 = true)
             uint8_t u8_val = *(bool*)val ? 1 : 0;
             err = nvs_set_u8(handle, key, u8_val);
@@ -208,9 +216,9 @@ static esp_err_t gatt_save_config(gatt_config_type_t type, const void* val)
             err = nvs_set_u8(handle, key, *(uint8_t*)val); // all are uint8_t
             break;
         case GATT_CONFIG_MTU:
+        case GATT_CONFIG_SERVICE_UUID:
             err = nvs_set_u16(handle, key, *(uint16_t*)val);
             break;
-
         default:
             err = ESP_ERR_INVALID_ARG;
             break;
@@ -464,10 +472,12 @@ static void gattc_device_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t
         break;
         
     case ESP_GATTC_SEARCH_RES_EVT: {
-        if (p_data->search_res.srvc_id.uuid.len == ESP_UUID_LEN_16 
-            && p_data->search_res.srvc_id.uuid.uuid.uuid16 == REMOTE_SERVICE_UUID
-            ) 
-        {
+        // only 16 bit uuids
+        if (p_data->search_res.srvc_id.uuid.len == ESP_UUID_LEN_16 ){
+            // if filter enabled and uuid dosen't match skip
+            if (device_manager.by_uuid && p_data->search_res.srvc_id.uuid.uuid.uuid16 != device_manager.remote_service_uuid){ 
+                break;
+            }
             ESP_LOGI(TAG, "Device %d: Found service Service UUID: 0x%0X", device_index, p_data->search_res.srvc_id.uuid.uuid.uuid16);
             device->service_start_handle = p_data->search_res.start_handle;
             device->service_end_handle = p_data->search_res.end_handle;
@@ -834,12 +844,12 @@ static void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *par
             if (device_manager.by_name) { // filter enabled
                 if (adv_name != NULL && adv_name_len > 0) {
                         // only add if name matches
-                        if (strlen(remote_device_name) == adv_name_len &&
-                            strncmp((char *)adv_name, remote_device_name, adv_name_len) == 0)
+                        if (strlen(device_manager.remote_device_name) == adv_name_len &&
+                            strncmp((char *)adv_name, device_manager.remote_device_name, adv_name_len) == 0)
                         {
                             exists = find_device_by_mac(scan_result->scan_rst.bda);
 
-                            if (exists == -1) device_manager_add_device(scan_result->scan_rst.bda, remote_device_name);
+                            if (exists == -1) device_manager_add_device(scan_result->scan_rst.bda, device_manager.remote_device_name);
                         } else {
                         ESP_LOGD(TAG, "Skipping device (name filter): %.*s", adv_name_len, adv_name);
                     }
@@ -942,16 +952,32 @@ void device_manager_init(void)
     if (err == ESP_OK) {
         ESP_LOGI(TAG, "Filter by name: %s", device_manager.by_name ? "ENABLED" : "DISABLED");
     } else {
-        ESP_LOGW(TAG, "Filter by name not found in NVS");
+        ESP_LOGW(TAG, "Filter by name flag not found in NVS");
         gatt_save_config(GATT_CONFIG_BY_NAME, &device_manager.by_name);
     }
 
-    size_t name_len = sizeof(remote_device_name);
-    err = gatt_load_config(GATT_CONFIG_DEVICE_NAME, remote_device_name, &name_len);
+    size_t name_len = sizeof(device_manager.remote_device_name);
+    err = gatt_load_config(GATT_CONFIG_DEVICE_NAME, device_manager.remote_device_name, &name_len);
     if (err != ESP_OK) {
-        ESP_LOGW(TAG, "No device name found in NVS");
+        ESP_LOGW(TAG, "No remote device name filter found in NVS");
         return;
     }
+
+    err = gatt_load_config(GATT_CONFIG_BY_UUID, &device_manager.by_uuid, NULL);
+    if (err == ESP_OK) {
+        ESP_LOGI(TAG, "Filter by uuid: %s", device_manager.by_uuid ? "ENABLED" : "DISABLED");
+    } else {
+        ESP_LOGW(TAG, "Filter by uuid flag not found in NVS");
+        gatt_save_config(GATT_CONFIG_BY_UUID, &device_manager.by_uuid);
+    }
+
+    size_t uuid_len = sizeof(device_manager.remote_service_uuid);
+    err = gatt_load_config(GATT_CONFIG_SERVICE_UUID, &device_manager.remote_service_uuid, &uuid_len);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "No remote service uuid filter found in NVS");
+        return;
+    }
+
     int8_t tx_power = 4; // default power
     size_t power_len = sizeof(tx_power);
    
@@ -1108,10 +1134,10 @@ bool device_set_color(const uint8_t *mac, uint8_t r, uint8_t g, uint8_t b)
     return control_device(device_index, w_cmd, cmd_len);
 }
 
-void ble_update_config(const char *device_name, const uint8_t *tx_power,
-                         const uint8_t *interval, const uint8_t *duration,
-                        const uint16_t *mtu, const bool *by_name)
+void ble_update_config( const bool *by_name, const char *device_name, const bool *by_uuid, const uint16_t *uuid,
+                        const uint8_t *tx_power, const uint8_t *interval, const uint8_t *duration, const uint16_t *mtu)
 {
+    bool reset_devices = false;
 
     bool new_by_name = *by_name;
     if (new_by_name != device_manager.by_name){
@@ -1125,35 +1151,11 @@ void ble_update_config(const char *device_name, const uint8_t *tx_power,
         }
         // Update runtime variable
         device_manager.by_name = new_by_name;
-
-        // Stop scanning if in progress
-        if (device_manager.scanning) {
-            stop_scanning();
-        }
-        // stop scan timer so it dosent start scanning unexpectedly 
-        stop_scan_timer();
-
-        // disconnect from all devices
-        for (int i = 0; i < MAX_DEVICES; i++) {
-            disconnect_from_device(i);
-        }
-        vTaskDelay(pdMS_TO_TICKS(200));
-
-        // Reset device list
-        for (int i = 0; i < MAX_DEVICES; i++) {
-        memset(&device_manager.devices[i], 0, sizeof(flood_light_device_t));
-        }
-        device_manager.discovered_count = 0;
-        device_manager.conn_count = 0;
-        device_manager.all_devices_found = false;
-
-        start_scanning();
-
-        ESP_LOGI(TAG, "Scan restarted for new filter setting");
+        reset_devices = true;
         
     }
     
-    if (strcmp(device_name, remote_device_name) != 0){ //if device name changed save new name
+    if (strcmp(device_name, device_manager.remote_device_name) != 0){
 
         ESP_LOGI(TAG, "Updating device name='%s'", device_name);
         esp_err_t err = gatt_save_config(GATT_CONFIG_DEVICE_NAME, device_name);
@@ -1163,8 +1165,43 @@ void ble_update_config(const char *device_name, const uint8_t *tx_power,
             return;
         }
         // Update runtime variable
-        strncpy(remote_device_name, device_name, sizeof(remote_device_name) - 1);
-        remote_device_name[sizeof(remote_device_name) - 1] = '\0';
+        strncpy(device_manager.remote_device_name, device_name, sizeof(device_manager.remote_device_name) - 1);
+        device_manager.remote_device_name[sizeof(device_manager.remote_device_name) - 1] = '\0';
+        reset_devices = true;
+
+    }
+
+    bool new_by_uuid = *by_uuid;
+    if (new_by_uuid != device_manager.by_uuid){
+
+        ESP_LOGI(TAG, "Filter by name: %s", new_by_uuid ? "ENABLED" : "DISABLED");
+        esp_err_t err = gatt_save_config(GATT_CONFIG_BY_UUID, by_uuid);
+
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to save config to NVS (%s)", esp_err_to_name(err));
+            return;
+        }
+        // Update runtime variable
+        device_manager.by_uuid = new_by_uuid;
+        reset_devices = true;
+        
+    }
+
+    if ( *uuid != device_manager.remote_service_uuid ){ 
+
+        ESP_LOGI(TAG, "Updating service UUID=0x%04X", *uuid);
+        esp_err_t err = gatt_save_config(GATT_CONFIG_SERVICE_UUID, uuid);
+
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to save config to NVS (%s)", esp_err_to_name(err));
+            return;
+        }
+        // Update runtime variable
+        device_manager.remote_service_uuid = *uuid;
+        reset_devices = true;
+    }
+
+    if (reset_devices){
 
         // Stop scanning if in progress
         if (device_manager.scanning) {
@@ -1188,9 +1225,9 @@ void ble_update_config(const char *device_name, const uint8_t *tx_power,
 
         start_scanning();
 
-        ESP_LOGI(TAG, "Scan restarted for new BLE target name");
+        ESP_LOGI(TAG, "Scan restarted for new BLE filter settings");
     }
-    
+     
     uint8_t old_power; 
     size_t power_len = sizeof(old_power);
    
@@ -1254,11 +1291,11 @@ void ble_update_config(const char *device_name, const uint8_t *tx_power,
        
 }
 
-void ble_get_config(char *device_name,uint8_t *tx_power, uint8_t *interval, uint8_t *duration,
-                    uint16_t *mtu, bool *by_name)
+void ble_get_config(bool *by_name, char *device_name, bool *by_uuid, uint16_t *uuid, 
+                    uint8_t *tx_power, uint8_t *interval, uint8_t *duration, uint16_t *mtu)
 {
     
-    strncpy(device_name, remote_device_name, sizeof(remote_device_name) - 1);
+    strncpy(device_name, device_manager.remote_device_name, sizeof(device_manager.remote_device_name) - 1);
 
     esp_err_t err = gatt_load_config(GATT_CONFIG_BLE_POWER, tx_power, NULL);
     if (err != ESP_OK) {
@@ -1268,6 +1305,8 @@ void ble_get_config(char *device_name,uint8_t *tx_power, uint8_t *interval, uint
     *interval = device_manager.scan_interval;
     *duration = device_manager.scan_duration;
     *by_name = device_manager.by_name;
+    *by_uuid = device_manager.by_uuid;
+    *uuid = device_manager.remote_service_uuid;
 
     err = gatt_load_config(GATT_CONFIG_MTU, mtu, NULL);
     if (err != ESP_OK) {

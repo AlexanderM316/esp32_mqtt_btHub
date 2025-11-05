@@ -15,8 +15,6 @@
 #define MAX_DEVICES 8  // max number of devices
 #define CMD_MAX_LEN 12 //  max length of w_cmd
 #define INVALID_HANDLE   0
-#define REMOTE_NOTIFY_CHAR_UUID    0xFFA2
-#define REMOTE_WRITE_CHAR_UUID     0xFFA1 
 
 static const char *NVS = "gatt";
 
@@ -29,6 +27,7 @@ typedef struct {
     // Device identification
     esp_bd_addr_t mac_address;
     char name[32];
+    uint16_t service_uuid;
     
     // Connection state
     bool connected;
@@ -107,11 +106,6 @@ typedef enum {
     GATT_CONFIG_BY_UUID,
     GATT_CONFIG_SERVICE_UUID,
 } gatt_config_type_t;
-
-static esp_bt_uuid_t notify_descr_uuid = {
-    .len = ESP_UUID_LEN_16,
-    .uuid = {.uuid16 = ESP_GATT_UUID_CHAR_CLIENT_CONFIG,},
-};
 
 /*
 // map esp ble power to int 0-7
@@ -474,8 +468,8 @@ static void gattc_device_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t
     case ESP_GATTC_SEARCH_RES_EVT: {
         // only 16 bit uuids
         if (p_data->search_res.srvc_id.uuid.len == ESP_UUID_LEN_16 ){
-            // if filter enabled and uuid dosen't match skip
-            if (device_manager.by_uuid && p_data->search_res.srvc_id.uuid.uuid.uuid16 != device_manager.remote_service_uuid){ 
+            // if uuid dosen't match adv service uuid skip
+            if (p_data->search_res.srvc_id.uuid.uuid.uuid16 != device_manager.devices[device_index].service_uuid){ 
                 break;
             }
             ESP_LOGI(TAG, "Device %d: Found service Service UUID: 0x%0X", device_index, p_data->search_res.srvc_id.uuid.uuid.uuid16);
@@ -518,7 +512,7 @@ static void gattc_device_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t
         // LOOK FOR NOTIFY CHARACTERISTIC (0xFF01)
         esp_bt_uuid_t notify_uuid = {
             .len = ESP_UUID_LEN_16,
-            .uuid = {.uuid16 = REMOTE_NOTIFY_CHAR_UUID,},
+            .uuid = {.uuid16 = device_manager.devices[device_index].service_uuid + 2,},
         };
 
         uint16_t notify_count = count;
@@ -540,7 +534,7 @@ static void gattc_device_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t
 
         esp_bt_uuid_t write_uuid = {
             .len = ESP_UUID_LEN_16,
-            .uuid = {.uuid16 = REMOTE_WRITE_CHAR_UUID,},
+            .uuid = {.uuid16 = device_manager.devices[device_index].service_uuid + 1,},
         };
 
         uint16_t write_count = count;
@@ -558,7 +552,7 @@ static void gattc_device_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t
             device->write_char_handle = char_elem_result[0].char_handle;
             ESP_LOGD(TAG, "Device %d: Found write characteristic (handle 0x%08x)", device_index, device->write_char_handle);
         } else {
-            ESP_LOGW(TAG, "Device %d: write characteristic not found (UUID 0x%04x)", device_index, REMOTE_WRITE_CHAR_UUID);
+            ESP_LOGW(TAG, "Device %d: write characteristic not found", device_index);
         }
         free(char_elem_result);
         send_pending_commands(device_index);
@@ -762,7 +756,7 @@ static void esp_gattc_cb(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp
 /**
  * @brief Add new device
  */
-static void device_manager_add_device(esp_bd_addr_t mac, const char *name)
+static void device_manager_add_device(esp_bd_addr_t mac, const char *name, uint16_t uuid)
 {
     if (device_manager.discovered_count >= MAX_DEVICES) {
         ESP_LOGW(TAG, "Device limit reached (%d)", MAX_DEVICES);
@@ -773,14 +767,14 @@ static void device_manager_add_device(esp_bd_addr_t mac, const char *name)
     flood_light_device_t *device = &device_manager.devices[index];
                         
     memcpy(device->mac_address, mac, ESP_BD_ADDR_LEN);
+    device->service_uuid = uuid;
 
     if (name != NULL) {
         strncpy(device->name, name, sizeof(device->name) - 1);
         device->name[sizeof(device->name) - 1] = '\0';
     } else {
         // Generate a default name if no name available
-        snprintf(device->name, sizeof(device->name), "Device_%02X%02X%02X", 
-                 mac[3], mac[4], mac[5]);
+        snprintf(device->name, sizeof(device->name), "Unkown");
     }
     device->app_id = index;
 
@@ -812,6 +806,8 @@ static void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *par
 {
     uint8_t *adv_name = NULL;
     uint8_t adv_name_len = 0;
+    uint8_t *adv_uuid = NULL;
+    uint8_t uuid_len = 0;
 
     switch (event) {
     case ESP_GAP_BLE_SCAN_PARAM_SET_COMPLETE_EVT:
@@ -829,47 +825,64 @@ static void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *par
         
         switch (scan_result->scan_rst.search_evt) {
         case ESP_GAP_SEARCH_INQ_RES_EVT:
-            if (device_manager.all_devices_found) {
+            if (device_manager.all_devices_found) 
                 break;
-            }
+            
             
             adv_name = esp_ble_resolve_adv_data_by_type(
                 scan_result->scan_rst.ble_adv,
                 scan_result->scan_rst.adv_data_len + scan_result->scan_rst.scan_rsp_len,
                 ESP_BLE_AD_TYPE_NAME_CMPL,
                 &adv_name_len);
+            
                 
-            int exists = -1;
-            char tmp_name[32]= {0};
-            if (device_manager.by_name) { // filter enabled
-                if (adv_name != NULL && adv_name_len > 0) {
-                        // only add if name matches
-                        if (strlen(device_manager.remote_device_name) == adv_name_len &&
-                            strncmp((char *)adv_name, device_manager.remote_device_name, adv_name_len) == 0)
-                        {
-                            exists = find_device_by_mac(scan_result->scan_rst.bda);
+            
+            if (device_manager.by_name) { // name filter enabled
+                if (!adv_name || adv_name_len == 0) break; // no name skip
+                        // name dosen't match skip
+                if (strlen(device_manager.remote_device_name) != adv_name_len ||
+                            strncmp((char *)adv_name, device_manager.remote_device_name, adv_name_len) != 0)
+                    break;
 
-                            if (exists == -1) device_manager_add_device(scan_result->scan_rst.bda, device_manager.remote_device_name);
-                        } else {
-                        ESP_LOGD(TAG, "Skipping device (name filter): %.*s", adv_name_len, adv_name);
+            }
+
+            adv_uuid = esp_ble_resolve_adv_data_by_type(
+                scan_result->scan_rst.ble_adv,
+                scan_result->scan_rst.adv_data_len + scan_result->scan_rst.scan_rsp_len,
+                ESP_BLE_AD_TYPE_16SRV_CMPL, // complete list of 16-bit UUIDs
+                &uuid_len
+            );
+
+            if (device_manager.by_uuid) { // uuid filter enabled
+                if (uuid_len < 2) break;   // too short skip
+                bool found = false;
+                for (int i = 0; i + 1 < uuid_len; i += 2) {
+                    uint16_t u = adv_uuid[i] | (adv_uuid[i + 1] << 8);
+                    if (u == device_manager.remote_service_uuid)  {
+                        found = true;
+                        break;
                     }
                 }
-            } else { // filter disabled
-            exists = find_device_by_mac(scan_result->scan_rst.bda);
+                if (!found) break; // uuid didn't match skip
+            }
 
-            if (adv_name != NULL && adv_name_len > 0) {
+            if (find_device_by_mac(scan_result->scan_rst.bda) >= 0 ) break; // device already registered skip
+
+            char tmp_name[32]= {0};
+            if (adv_name && adv_name_len > 0) {
 
                 if (adv_name_len >= sizeof(tmp_name)) adv_name_len = sizeof(tmp_name) - 1; // limit lenght to 32
 
                 memcpy(tmp_name, adv_name, adv_name_len);
                 tmp_name[adv_name_len] = '\0';
             }
-
-            if (exists == -1) {
-                device_manager_add_device(scan_result->scan_rst.bda, (adv_name && adv_name_len > 0) ? tmp_name : NULL);
+            uint16_t temp_uuid = 0;
+            if (adv_uuid && uuid_len >= 2) {
+                temp_uuid = adv_uuid[0] | (adv_uuid[1] << 8);
             }
-        }
-        break;
+            device_manager_add_device(scan_result->scan_rst.bda, (adv_name && adv_name_len > 0) ? tmp_name : NULL, temp_uuid);
+        
+            break;
 
         case ESP_GAP_SEARCH_INQ_CMPL_EVT:
             
@@ -1326,7 +1339,7 @@ void ble_get_metrics(uint8_t *discovered_count, uint8_t *conn_count)
     }
 }
 
-void ble_get_devices(uint8_t *indexes,const char **names, uint8_t *macs, bool *connected)
+void ble_get_devices(uint8_t *indexes,const char **names, uint8_t *macs, bool *connected, uint16_t *uuids)
 {
 
     for (int i = 0; i < device_manager.discovered_count; i++){
@@ -1344,6 +1357,9 @@ void ble_get_devices(uint8_t *indexes,const char **names, uint8_t *macs, bool *c
         }
         if (connected) {
             connected[i] = device_manager.devices[i].connected;
+        }
+        if (uuids) {
+            uuids[i] = device_manager.devices[i].service_uuid;
         }
     } 
 }

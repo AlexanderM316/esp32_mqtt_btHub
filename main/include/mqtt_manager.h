@@ -56,7 +56,7 @@ typedef void (*ble_get_metrics_cb_t)(uint8_t *discovered_count, uint8_t *conn_co
 /**
  * @brief getter callcack for ble devices
  */
-typedef void (*ble_get_devices_cb_t)(uint8_t *indexes,const char **names, uint8_t *macs, bool *connected);
+typedef void (*ble_get_devices_cb_t)(uint8_t *indexes,const char **names, uint8_t *macs, bool *connected, uint16_t *uuids);
 /**
  * @brief set mqtt callbacks
  */

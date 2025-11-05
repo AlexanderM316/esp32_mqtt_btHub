@@ -296,12 +296,13 @@ static esp_err_t metrics_get_handler(httpd_req_t *req)
     const char *names[discovered_count];
     uint8_t macs[discovered_count * 6];
     bool connected[discovered_count];
+    uint16_t uuids[discovered_count];
 
     if (httpd_callbacks.ble_get_devices_cb){
-        httpd_callbacks.ble_get_devices_cb( indexes, names, macs, connected);
+        httpd_callbacks.ble_get_devices_cb( indexes, names, macs, connected, uuids);
     }
 
-    char json[1024];
+    char json[1064];
     int written = snprintf(json, sizeof(json),
         "{\"uptime_ms\":%lu,"
         "\"free_heap\":%u,"
@@ -314,17 +315,19 @@ static esp_err_t metrics_get_handler(httpd_req_t *req)
         m->uptime_ms, m->free_heap, m->total_heap, m->used_percent,
         m->min_free_heap, conn_count, discovered_count);
 
-         for (uint8_t i = 0U; i < discovered_count; ++i) {
+        for (uint8_t i = 0U; i < discovered_count; ++i) {
         int len = snprintf(json + written, sizeof(json) - (size_t)written,
             "{\"index\":%u,"
             "\"name\":\"%s\","
             "\"mac\":\"%02X:%02X:%02X:%02X:%02X:%02X\","
-            "\"connected\":%s}%s",
+            "\"connected\":%s,"
+            "\"uuid\":\"%04X\"}%s",
             indexes[i],
             names[i] != NULL ? names[i] : "",
             macs[i*6 + 0], macs[i*6 + 1], macs[i*6 + 2],
             macs[i*6 + 3], macs[i*6 + 4], macs[i*6 + 5],
-            connected[i] ? "\"Connected\"" : "\"Disconnected\"",
+            connected[i] ? "\"Connected\"" : "\"Disconnected\"",  
+            uuids[i],
             (i + 1U < discovered_count) ? "," : "");
 
         if (len < 0) {
@@ -388,7 +391,7 @@ static esp_err_t index_json_handler(httpd_req_t *req)
             "\"mtu\":%d,"
             "\"by_name\":%d,"
             "\"by_uuid\":%d,"
-            "\"uuid\":%d"
+            "\"uuid\":\"%04X\""
         "}",
         device_name,
         (uint8_t)tx_power,

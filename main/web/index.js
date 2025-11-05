@@ -170,7 +170,7 @@ async function updateMetrics() {
     table.innerHTML = '';
     for (const dev of data.devices) {
       const row = document.createElement('tr');
-      row.innerHTML = `<td>${dev.index}</td><td>${dev.name}</td><td>${dev.mac}</td><td>${dev.connected}</td>`;
+      row.innerHTML = `<td>${dev.index}</td><td>${dev.name}</td><td>${dev.mac}</td><td>${dev.uuid}</td><td>${dev.connected}</td>`;
       table.appendChild(row);
     }
   } catch (err) {

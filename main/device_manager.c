@@ -34,6 +34,7 @@ typedef struct {
 
     // State reporting
     bool power_state;
+    int8_t rssi;
 
     // Command queue 
     uint8_t pending_cmd[CMD_MAX_LEN];
@@ -756,7 +757,7 @@ static void esp_gattc_cb(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp
 /**
  * @brief Add new device
  */
-static void device_manager_add_device(esp_bd_addr_t mac, const char *name, uint16_t uuid)
+static void device_manager_add_device(esp_bd_addr_t mac, const char *name, uint16_t uuid, int8_t rssi)
 {
     if (device_manager.discovered_count >= MAX_DEVICES) {
         ESP_LOGW(TAG, "Device limit reached (%d)", MAX_DEVICES);
@@ -768,6 +769,7 @@ static void device_manager_add_device(esp_bd_addr_t mac, const char *name, uint1
                         
     memcpy(device->mac_address, mac, ESP_BD_ADDR_LEN);
     device->service_uuid = uuid;
+    device->rssi = rssi;
 
     if (name != NULL) {
         strncpy(device->name, name, sizeof(device->name) - 1);
@@ -866,8 +868,11 @@ static void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *par
                 if (!found) break; // uuid didn't match skip
             }
 
-            if (find_device_by_mac(scan_result->scan_rst.bda) >= 0 ) break; // device already registered skip
-
+            int idx = find_device_by_mac(scan_result->scan_rst.bda);
+            if (idx >= 0 ) {
+                device_manager.devices[idx].rssi = scan_result->scan_rst.rssi;
+                break; // device already registered update rssi and exit
+            }
             char tmp_name[32]= {0};
             if (adv_name && adv_name_len > 0) {
 
@@ -880,7 +885,8 @@ static void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *par
             if (adv_uuid && uuid_len >= 2) {
                 temp_uuid = adv_uuid[0] | (adv_uuid[1] << 8);
             }
-            device_manager_add_device(scan_result->scan_rst.bda, (adv_name && adv_name_len > 0) ? tmp_name : NULL, temp_uuid);
+            device_manager_add_device(scan_result->scan_rst.bda, (adv_name && adv_name_len > 0) ? tmp_name : NULL, temp_uuid, 
+                                        scan_result->scan_rst.rssi);
         
             break;
 
@@ -1339,7 +1345,7 @@ void ble_get_metrics(uint8_t *discovered_count, uint8_t *conn_count)
     }
 }
 
-void ble_get_devices(uint8_t *indexes,const char **names, uint8_t *macs, bool *connected, uint16_t *uuids)
+void ble_get_devices(uint8_t *indexes,const char **names, uint8_t *macs, bool *connected, uint16_t *uuids, int8_t *rssis)
 {
 
     for (int i = 0; i < device_manager.discovered_count; i++){
@@ -1360,6 +1366,9 @@ void ble_get_devices(uint8_t *indexes,const char **names, uint8_t *macs, bool *c
         }
         if (uuids) {
             uuids[i] = device_manager.devices[i].service_uuid;
+        }
+        if (rssis) {
+            rssis[i] = device_manager.devices[i].rssi;
         }
     } 
 }

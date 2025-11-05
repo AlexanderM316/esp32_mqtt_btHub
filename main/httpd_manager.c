@@ -297,9 +297,10 @@ static esp_err_t metrics_get_handler(httpd_req_t *req)
     uint8_t macs[discovered_count * 6];
     bool connected[discovered_count];
     uint16_t uuids[discovered_count];
+    int8_t rssis[discovered_count];
 
     if (httpd_callbacks.ble_get_devices_cb){
-        httpd_callbacks.ble_get_devices_cb( indexes, names, macs, connected, uuids);
+        httpd_callbacks.ble_get_devices_cb( indexes, names, macs, connected, uuids, rssis);
     }
 
     char json[1064];
@@ -321,13 +322,15 @@ static esp_err_t metrics_get_handler(httpd_req_t *req)
             "\"name\":\"%s\","
             "\"mac\":\"%02X:%02X:%02X:%02X:%02X:%02X\","
             "\"connected\":%s,"
-            "\"uuid\":\"%04X\"}%s",
+            "\"uuid\":\"%04X\","
+            "\"rssi\":%d}%s",
             indexes[i],
             names[i] != NULL ? names[i] : "",
             macs[i*6 + 0], macs[i*6 + 1], macs[i*6 + 2],
             macs[i*6 + 3], macs[i*6 + 4], macs[i*6 + 5],
             connected[i] ? "\"Connected\"" : "\"Disconnected\"",  
             uuids[i],
+            rssis[i],
             (i + 1U < discovered_count) ? "," : "");
 
         if (len < 0) {

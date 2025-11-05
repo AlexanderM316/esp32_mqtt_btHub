@@ -74,5 +74,5 @@ void ble_get_metrics(uint8_t *discovered_count, uint8_t *conn_count);
 /**
  * @brief getter for ble devices
  */
-void ble_get_devices(uint8_t *indexes,const char **names, uint8_t *macs, bool *connected, uint16_t *uuids);
+void ble_get_devices(uint8_t *indexes,const char **names, uint8_t *macs, bool *connected, uint16_t *uuids, int8_t *rssi);
 #endif // device_manager_H

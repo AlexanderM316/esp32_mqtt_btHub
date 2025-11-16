@@ -50,6 +50,10 @@ bool device_set_brightness(const uint8_t *mac, uint8_t brightness);
  */
 bool device_set_color(const uint8_t *mac, uint8_t r, uint8_t g ,uint8_t b);
 /**
+ * @brief reset device list
+ */
+bool ble_reset_devices(void);
+/**
  * @brief set device config 
  * @param by_name enable filter by name?
  * @param device_name new device name filter

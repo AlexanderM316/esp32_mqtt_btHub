@@ -29,6 +29,10 @@ void mqtt_device_state(bool power_state, uint8_t *mac);
  */                             
 void mqtt_update_config(const char *broker, const char *prefix, const char *user, const char *pass);
 /**
+ * @brief getter for current mqtt config
+ */ 
+void mqtt_get_config(char *broker, char *prefix, bool *user, bool *pass);
+/**
  * @brief callback to turn ble device on/off
  * @param mac address of device
  * @param power on/off

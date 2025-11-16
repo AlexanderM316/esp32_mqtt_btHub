@@ -37,9 +37,10 @@ static esp_err_t mqtt_load_config(
     err = nvs_get_str(handle, "broker", broker, &broker_len);
     if (err != ESP_OK) { nvs_close(handle); return err; }
 
-    err = nvs_get_str(handle, "prefix", prefix, &prefix_len);
-    if (err != ESP_OK) { nvs_close(handle); return err; }
-
+    if (prefix != NULL) {
+        err = nvs_get_str(handle, "prefix", prefix, &prefix_len);
+        if (err != ESP_OK) { nvs_close(handle); return err; }
+    }
     err = nvs_get_str(handle, "user", user, &user_len);
     if (err != ESP_OK) { nvs_close(handle); return err; }
 
@@ -310,7 +311,7 @@ void mqtt_start(void)
     
     esp_err_t err = mqtt_load_config(broker, sizeof(broker), mqtt_prefix, sizeof(mqtt_prefix), user, sizeof(user), pass, sizeof(pass));
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to load config from NVS (%s)", esp_err_to_name(err));
+        ESP_LOGW(TAG, "Failed to load config from NVS (%s)", esp_err_to_name(err));
         return;
     }
 
@@ -392,6 +393,39 @@ void mqtt_update_config(const char *broker, const char *prefix, const char *user
     }
     mqtt_start();
 }
+
+void mqtt_get_config(char *broker, char *prefix, bool *user, bool *pass){
+  
+    char tmp_broker[64] = {0};
+    char tmp_user[32] = {0};
+    char tmp_pass[32] = {0};
+
+    esp_err_t err = mqtt_load_config(tmp_broker, sizeof(tmp_broker), NULL, 0, tmp_user, sizeof(tmp_user),
+                                     tmp_pass, sizeof(tmp_pass));
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to load config from NVS (%s)", esp_err_to_name(err));
+        return;
+    }
+
+    if (broker && tmp_broker[0] != '\0') {
+        strncpy(broker, tmp_broker, 63);
+        broker[63] = '\0';
+    }
+
+    if (prefix && mqtt_prefix[0] != '\0' ){
+        strncpy(prefix, mqtt_prefix, sizeof(mqtt_prefix) - 1);
+    }
+    
+    if (user) {
+       *user = (tmp_user[0] != '\0');
+    }
+
+    if (pass) {
+        *pass = (tmp_pass[0] != '\0');
+    }
+
+}
+
 void mqtt_set_callbacks(device_set_power_cb_t device_set_power, device_set_brightness_cb_t device_set_brightness,
                         device_set_color_cb_t device_set_color, ble_get_metrics_cb_t ble_get_metrics,
                         ble_get_devices_cb_t ble_get_devices)

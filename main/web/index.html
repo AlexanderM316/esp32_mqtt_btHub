@@ -30,7 +30,7 @@
         </div>
         <div class="form-group">
           <label for="user">Username:</label>
-          <input type="text" id="user" name="user" maxlength="31">
+          <input type="password" id="user" name="user" maxlength="31">
         </div>
         <div class="form-group">
           <label for="pass">Password:</label>
@@ -119,11 +119,24 @@
       <p>Min Free: <span id="min_heap"></span> bytes</p>
       <p>Uptime: <span id="uptime"></span></p>
       <h2>BLE Metrics</h2>
-      <p>Devices: <span id="conn_count"></span> connected / <span id="discovered_count"></span> discovered</p>
+      <div>
+      <p id="devices-p">Devices: <span id="conn_count"></span> connected / <span id="discovered_count"></span> discovered</p>        
+      <button id="reset-ble-btn" class="reset-btn" type="button">Reset Devices</button>
+      </div>
+      <br>
       <table id="devices-table">
         <thead><tr><th>ID</th><th>Name</th><th>MAC</th><th>Service UUID</th><th>Status</th><th>RSSI</th></tr></thead>
         <tbody id="devices-table-body"></tbody>
       </table>
+    </div>
+     <div id="reset-confirm-dialog" class="dialog-overlay" style="display: none;">
+    <div class="dialog-box">
+      <h3>Reset BLE Devices</h3>
+      <p>Are you sure you want to reset the BLE devices list? This will clear all discovered devices.</p>
+      <div class="dialog-buttons">
+        <button id="confirm-reset" class="btn-danger">Yes, Reset</button>
+        <button id="cancel-reset" class="btn-secondary">Cancel</button>
+      </div>
     </div>
   </main>
   <script src="index.js"></script>

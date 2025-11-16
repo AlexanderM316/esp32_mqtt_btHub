@@ -510,7 +510,7 @@ static void gattc_device_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t
             break;
         }
 
-        // LOOK FOR NOTIFY CHARACTERISTIC (0xFF01)
+        // LOOK FOR NOTIFY CHARACTERISTIC 
         esp_bt_uuid_t notify_uuid = {
             .len = ESP_UUID_LEN_16,
             .uuid = {.uuid16 = device_manager.devices[device_index].service_uuid + 2,},
@@ -1114,7 +1114,7 @@ bool disconnect_from_device(int device_index)
     flood_light_device_t *device = &device_manager.devices[device_index];
     
     if (!device->connected) {
-        ESP_LOGE(TAG, "Device %d is not connected", device_index);
+        ESP_LOGI(TAG, "Device %d is not connected", device_index);
         return true;
     }
     
@@ -1151,6 +1151,30 @@ bool device_set_color(const uint8_t *mac, uint8_t r, uint8_t g, uint8_t b)
     if (!cmd_len) return false;
     int device_index = find_device_by_mac(mac);
     return control_device(device_index, w_cmd, cmd_len);
+}
+
+bool ble_reset_devices(void)
+{
+    // Stop scanning if in progress
+    if (device_manager.scanning) {
+        stop_scanning();
+    }
+    // stop scan timer so it dosent start scanning unexpectedly 
+    stop_scan_timer();
+    // disconnect from all devices
+    for (int i = 0; i < MAX_DEVICES; i++) {
+        disconnect_from_device(i);
+    }
+    vTaskDelay(pdMS_TO_TICKS(200));
+    // Reset device list
+    for (int i = 0; i < MAX_DEVICES; i++) {
+    memset(&device_manager.devices[i], 0, sizeof(flood_light_device_t));
+    }
+    device_manager.discovered_count = 0;
+    device_manager.conn_count = 0;
+    device_manager.all_devices_found = false;
+    start_scanning();
+    return true;
 }
 
 void ble_update_config( const bool *by_name, const char *device_name, const bool *by_uuid, const uint16_t *uuid,
@@ -1222,28 +1246,11 @@ void ble_update_config( const bool *by_name, const char *device_name, const bool
 
     if (reset_devices){
 
-        // Stop scanning if in progress
-        if (device_manager.scanning) {
-            stop_scanning();
+        if(!ble_reset_devices())
+        {
+            ESP_LOGE(TAG, "Failed to reset devices");
+            return;
         }
-        // stop scan timer so it dosent start scanning unexpectedly 
-        stop_scan_timer();
-
-        // disconnect from all devices
-        for (int i = 0; i < MAX_DEVICES; i++) {
-            disconnect_from_device(i);
-        }
-        vTaskDelay(pdMS_TO_TICKS(200));
-        // Reset device list
-        for (int i = 0; i < MAX_DEVICES; i++) {
-        memset(&device_manager.devices[i], 0, sizeof(flood_light_device_t));
-        }
-        device_manager.discovered_count = 0;
-        device_manager.conn_count = 0;
-        device_manager.all_devices_found = false;
-
-        start_scanning();
-
         ESP_LOGI(TAG, "Scan restarted for new BLE filter settings");
     }
      

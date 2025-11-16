@@ -14,6 +14,8 @@ document.addEventListener("DOMContentLoaded", async () => {
         });
     });
     const mqtt_form = document.getElementById("mqtt-form");
+    const mqtt_user = document.getElementById("user");
+    const mqtt_pass = document.getElementById("pass");
     const mqtt_status = document.getElementById("mqtt-status");
     const ble_form = document.getElementById("ble-form");
     const ble_status = document.getElementById("ble-status");
@@ -23,10 +25,24 @@ document.addEventListener("DOMContentLoaded", async () => {
     const byUuidCb = document.getElementById("by_uuid");
     const login_form = document.getElementById("set-login-form");
     const login_status = document.getElementById("set-login-status");
+    const resetBtn = document.getElementById('reset-ble-btn');
+    const dialog = document.getElementById('reset-confirm-dialog');
+    const confirmBtn = document.getElementById('confirm-reset');
+    const cancelBtn = document.getElementById('cancel-reset');
     try {
         const res = await fetch("/index.json");
         if (res.ok) {
             const data = await res.json();
+            document.getElementById("broker").value = data.broker || "";
+            document.getElementById("prefix").value = data.prefix || "";
+            if (data.user) {
+                mqtt_user.placeholder = "********";
+                mqtt_user.setAttribute("data-has-value", "true");
+            }
+            if (data.pass) {
+                mqtt_pass.placeholder = "********"; 
+                mqtt_pass.setAttribute("data-has-value", "true");
+            }
             document.getElementById("device_name").value = data.device_name || "";
             document.getElementById("tx_power").value = data.tx_power ?? 0;
             document.getElementById("interval").value = data.interval ?? 0;
@@ -41,6 +57,18 @@ document.addEventListener("DOMContentLoaded", async () => {
     } catch (err) {
         console.log("No existing config found");
     }
+    mqtt_user.addEventListener('focus', function() {
+        if (this.getAttribute('data-has-value') === 'true') {
+            this.placeholder = "";
+            this.removeAttribute('data-has-value');
+            }
+    });
+    mqtt_pass.addEventListener('focus', function() {
+    if (this.getAttribute('data-has-value') === 'true') {
+            this.placeholder = "";
+            this.removeAttribute('data-has-value');
+        }
+    });
     mqtt_form.addEventListener("submit", async (e) => {
         e.preventDefault();
         const payload = {
@@ -120,7 +148,62 @@ document.addEventListener("DOMContentLoaded", async () => {
             login_status.style.color = "red";
         }
     });
+    resetBtn.addEventListener('click', function() {
+        dialog.style.display = 'flex';
+    });
+    cancelBtn.addEventListener('click', function() {
+        dialog.style.display = 'none';
+    });
+     confirmBtn.addEventListener('click', function() {
+        resetBLEDevices();
+        dialog.style.display = 'none';
+    });
+    dialog.addEventListener('click', function(e) {
+        if (e.target === dialog) {
+            dialog.style.display = 'none';
+        }
+    });
 });
+function resetBLEDevices() {
+    fetch('/ble_reset', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        }
+    })
+    .then(response => {
+        if (response.ok) {
+            showNotification('BLE devices list reset successfully', 'success');
+        } else {
+            throw new Error('Reset failed');
+        }
+    })
+    .catch(error => {
+        console.error('Error resetting BLE devices:', error);
+        showNotification('Failed to reset BLE devices', 'error');
+    });
+}
+function showNotification(message, type) {
+    const notification = document.createElement('div');
+    notification.className = `notification ${type}`;
+    notification.textContent = message;
+    notification.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        padding: 15px;
+        border-radius: 5px;
+        color: white;
+        z-index: 1001;
+        background-color: ${type === 'success' ? '#28a745' : '#dc3545'};
+    `;
+    
+    document.body.appendChild(notification);
+    
+    setTimeout(() => {
+        notification.remove();
+    }, 3000);
+}
 function startMetricsPolling() {
   if (metricsInterval) return;
   updateMetrics(); 

@@ -40,7 +40,7 @@ void app_main(void)
     // Register the MQTT callbacks
     mqtt_set_callbacks(device_set_power, device_set_brightness, device_set_color, ble_get_metrics, ble_get_devices);
     // Register the httpd server callbacks
-    httpd_manager_set_callbacks(wifi_update_credentials, mqtt_update_config, ble_update_config,
-                                ble_get_config, ble_get_metrics, ble_get_devices);
+    httpd_manager_set_callbacks(wifi_update_credentials, mqtt_update_config, mqtt_get_config, ble_update_config,
+                                ble_get_config, ble_get_metrics, ble_get_devices, ble_reset_devices);
   
 }

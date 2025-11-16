@@ -33,10 +33,12 @@ typedef struct {
 static struct {
     wifi_credentials_cb_t wifi_credentials_cb;
     mqtt_config_cb_t mqtt_config_cb;
+    mqtt_get_config_cb_t mqtt_get_config_cb;
     ble_config_cb_t ble_config_cb;
     ble_get_config_cb_t ble_get_config_cb;
     ble_get_metrics_cb_t ble_get_metrics_cb;
     ble_get_devices_cb_t ble_get_devices_cb;
+    ble_reset_devices_cb_t ble_reset_devices_cb;
 } httpd_callbacks = {0};
 
 // simple hardcoded form for the captive portal
@@ -381,12 +383,21 @@ static esp_err_t index_json_handler(httpd_req_t *req)
         httpd_callbacks.ble_get_config_cb( &by_name, device_name, &by_uuid, &uuid, &tx_power, &interval, &duration, &mtu);
     }
 
-    char resp[384];
+    char broker[64] ={0};
+    char prefix[32]= {0};
+    bool user = false;
+    bool pass = false;
+    if (httpd_callbacks.mqtt_get_config_cb){
+        httpd_callbacks.mqtt_get_config_cb( broker, prefix , &user, &pass);
+    }
+
+    char resp[512];
     int len = snprintf(resp, sizeof(resp),
         "{"
-            "\"broker\":\" \","
-            "\"prefix\":\" \","
-            "\"user\":\" \","
+            "\"broker\":\"%s\","
+            "\"prefix\":\"%s\","
+            "\"user\":%d,"
+            "\"pass\":%d,"
             "\"device_name\":\"%s\","
             "\"tx_power\":%d,"
             "\"interval\":%d,"
@@ -396,6 +407,10 @@ static esp_err_t index_json_handler(httpd_req_t *req)
             "\"by_uuid\":%d,"
             "\"uuid\":\"%04X\""
         "}",
+        broker,
+        prefix,
+        (uint8_t)user,
+        (uint8_t)pass,
         device_name,
         (uint8_t)tx_power,
         (uint8_t)interval,
@@ -569,6 +584,27 @@ static esp_err_t ble_submit_post(httpd_req_t *req)
     httpd_resp_sendstr(req, "{\"success\":true}");
     return ESP_OK;
 }
+/**
+ * @brief ble reset devices
+ */ 
+static esp_err_t ble_reset_post(httpd_req_t *req)
+{
+    char buf[32];
+    while (httpd_req_recv(req, buf, sizeof(buf)) > 0) {}
+
+    bool ret = false;
+    if (httpd_callbacks.ble_reset_devices_cb) {
+        ret = httpd_callbacks.ble_reset_devices_cb();   
+    }
+    
+    httpd_resp_set_type(req, "application/json");
+    if (!ret) {
+        httpd_resp_sendstr(req, "{\"success\":false,\"error\":\"Reset failed\"}");
+        return ret;
+    }
+    httpd_resp_sendstr(req, "{\"success\":true}");
+    return ESP_OK;
+}
 
 static void long_press_cb(void *arg, void *usr_data) {
     reset_login_credentials();
@@ -702,6 +738,14 @@ void httpd_manager_start(bool captive_portal)
         };
         httpd_register_uri_handler(server, &ble_submit_uri); 
 
+        httpd_uri_t ble_reset_uri = {
+            .uri = "/ble_reset",
+            .method = HTTP_POST,
+            .handler = ble_reset_post,
+            .user_ctx = NULL
+        };
+        httpd_register_uri_handler(server, &ble_reset_uri); 
+
         httpd_uri_t login_uri = {
             .uri = "/login",
             .method = HTTP_POST,
@@ -723,15 +767,19 @@ void httpd_manager_start(bool captive_portal)
 void httpd_manager_set_callbacks(
     wifi_credentials_cb_t wifi_credentials,
     mqtt_config_cb_t mqtt_config,
+    mqtt_get_config_cb_t mqtt_get_config,
     ble_config_cb_t ble_config,
     ble_get_config_cb_t ble_get_config,
     ble_get_metrics_cb_t ble_get_metrics,
-    ble_get_devices_cb_t ble_get_devices)
+    ble_get_devices_cb_t ble_get_devices,
+    ble_reset_devices_cb_t ble_reset_devices)
 {
     if (wifi_credentials) httpd_callbacks.wifi_credentials_cb = wifi_credentials;
     if (mqtt_config) httpd_callbacks.mqtt_config_cb = mqtt_config;
+    if (mqtt_get_config) httpd_callbacks.mqtt_get_config_cb = mqtt_get_config;
     if (ble_config) httpd_callbacks.ble_config_cb = ble_config;
     if (ble_get_config) httpd_callbacks.ble_get_config_cb = ble_get_config;
     if (ble_get_metrics) httpd_callbacks.ble_get_metrics_cb = ble_get_metrics;
     if (ble_get_devices) httpd_callbacks.ble_get_devices_cb = ble_get_devices;
+    if (ble_reset_devices) httpd_callbacks.ble_reset_devices_cb = ble_reset_devices;
 }

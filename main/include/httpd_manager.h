@@ -12,6 +12,10 @@ typedef void (*wifi_credentials_cb_t)(const char *ssid, const char *pass);
  */
 typedef void (*mqtt_config_cb_t)(const char *broker, const char *prefix, const char *user, const char *pass);
 /**
+ * @brief Getter callback for MQTT config
+ */
+typedef void (*mqtt_get_config_cb_t)(char *broker, char *prefix, bool *user, bool *pass);
+/**
  * @brief Type for ble(gatt) config save callback
  */
 typedef void (*ble_config_cb_t)(const bool *by_name, const char *device_name, const bool *by_uuid, const uint16_t *uuid,
@@ -30,6 +34,10 @@ typedef void (*ble_get_metrics_cb_t)(uint8_t *discovered_count, uint8_t *conn_co
  */
 typedef void (*ble_get_devices_cb_t)(uint8_t *indexes,const char **names, uint8_t *macs, bool *connected, uint16_t *uuids, int8_t *rssis);
 /**
+ * @brief callback to reset BLE devices
+ */
+typedef bool (*ble_reset_devices_cb_t)(void);
+/**
  * @brief Start the HTTP server.
  * @param captive_portal  true for AP/captive portal mode
  */
@@ -40,8 +48,10 @@ void httpd_manager_start(bool captive_portal);
 void httpd_manager_set_callbacks(
     wifi_credentials_cb_t  wifi_credentials,
     mqtt_config_cb_t mqtt_config,
+    mqtt_get_config_cb_t mqtt_get_config,
     ble_config_cb_t ble_config,
     ble_get_config_cb_t ble_get_config,
     ble_get_metrics_cb_t ble_get_metrics,
-    ble_get_devices_cb_t ble_get_devices);
+    ble_get_devices_cb_t ble_get_devices,
+    ble_reset_devices_cb_t ble_reset_devices);
 #endif //httpd_manager_H

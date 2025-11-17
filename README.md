@@ -23,12 +23,16 @@
 - 
 ## Сборка 
 
-- [Установите ESP-IDF v6](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/get-started/index.html)
-- Клонирование проекта
-  ```bash
-   git clone https://github.com/AlexanderM316/esp32_mqtt_btHub.git
-  ```
-- Сборка
+1. [Установите ESP-IDF v6](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/get-started/index.html)
+2. Клонирование проекта
+    ```bash
+     git clone https://github.com/AlexanderM316/esp32_mqtt_btHub.git
+    ```
+3. Активируйте среду ESP-IDF (Linux и macOS):
+   ```bash
+   . $HOME/esp/esp-idf/export.sh
+   ```
+4. Сборка
     ```bash
     idf.py build
     ```
